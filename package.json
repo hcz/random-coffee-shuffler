@@ -1,0 +1,22 @@
+{
+  "name": "random-coffee",
+  "version": "1.0.0",
+  "description": "Random Coffee pairing application that reads from Yandex.Disk spreadsheet and creates user pairs",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "axios": "^1.13.2",
+    "dotenv": "^17.2.3",
+    "graphology": "^0.26.0",
+    "graphology-metrics": "^2.4.0",
+    "munkres-js": "^1.2.2",
+    "xlsx": "^0.18.5"
+  }
+}
