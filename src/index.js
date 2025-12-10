@@ -2,7 +2,7 @@ const XLSX = require('xlsx');
 const fs = require('fs');
 const config = require('./config');
 const YandexDiskClient = require('./yandexDiskClient');
-const { generateOptimalPairs } = require('./sophisticatedPairingAlgorithm');
+const { generateOptimalPairs } = require('./pairingAlgorithm');
 
 /**
  * Main function to process the spreadsheet

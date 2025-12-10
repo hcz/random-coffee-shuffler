@@ -264,15 +264,18 @@ To run pairings automatically on a schedule:
 ```
 random-coffee/
 ├── src/
-│   ├── index.js                          # Main application script
-│   ├── config.js                         # Configuration loader
-│   ├── yandexDiskClient.js               # Yandex.Disk API client
-│   ├── sophisticatedPairingAlgorithm.js  # Advanced matching algorithm (Hungarian)
-│   └── pairingAlgorithm.js               # Legacy simple algorithm (deprecated)
-├── package.json                          # Project dependencies
-├── .env                                  # Environment variables (create from .env.example)
-├── .env.example                          # Example environment variables
-└── .gitignore                            # Git ignore file
+│   ├── index.js                # Main application script
+│   ├── config.js               # Configuration loader
+│   ├── yandexDiskClient.js     # Yandex.Disk API client
+│   └── pairingAlgorithm.js     # Advanced matching algorithm (Hungarian)
+├── docs/
+│   ├── GITLAB_CI_SETUP.md      # GitLab CI/CD setup guide
+│   └── ...                     # Other documentation
+├── .gitlab-ci.yml              # GitLab CI/CD configuration
+├── package.json                # Project dependencies
+├── .env                        # Environment variables (create from .env.example)
+├── .env.example                # Example environment variables
+└── .gitignore                  # Git ignore file
 ```
 
 ## Error Handling
