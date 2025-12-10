@@ -46,13 +46,22 @@ async function main() {
 
     // Convert sheets to JSON arrays
     const table1Data = XLSX.utils.sheet_to_json(sheet1, { header: 1 });
-    const table2Data = XLSX.utils.sheet_to_json(sheet2, { header: 1 });
+    let table2Data = XLSX.utils.sheet_to_json(sheet2, { header: 1 });
 
     console.log(`Table 1 has ${table1Data.length} rows`);
-    console.log(`Table 2 has ${table2Data.length} rows`);
 
     // Normalize all dates in Table 2 to dd/mm/yyyy format
     normalizeDatesInTable2(table2Data);
+
+    // Remove empty rows from Table 2
+    const rowsBeforeCleanup = table2Data.length;
+    table2Data = removeEmptyRows(table2Data);
+    const emptyRowsRemoved = rowsBeforeCleanup - table2Data.length;
+    if (emptyRowsRemoved > 0) {
+      console.log(`Table 2: Removed ${emptyRowsRemoved} empty row(s), now has ${table2Data.length} rows`);
+    } else {
+      console.log(`Table 2 has ${table2Data.length} rows`);
+    }
 
     // Step 3: Generate optimal pairs using sophisticated algorithm
     const newPairs = generateOptimalPairs(
@@ -75,17 +84,17 @@ async function main() {
     const pairingText = `${config.spreadsheet.pairingTextBase} #${roundNumber}`;
     console.log(`  Round: ${pairingText}`);
 
-    // Get current date formatted as dd/mm/yyyy
+    // Get current date formatted as ISO (yyyy-mm-dd) - the ONLY date format we use for writing
     const currentDate = new Date();
-    const dateText = formatDateAsDDMMYYYY(currentDate);
+    const dateText = formatDateAsISO(currentDate);
 
     // Add new pairs to table2Data
-    // Table 2 structure: Column 0 = email1, Column 1 = email2, Column 2 = date, Column 3 = text
+    // Table 2 structure: Column 0 = email1, Column 1 = email2, Column 2 = date (yyyy-mm-dd), Column 3 = text
     for (const [email1, email2] of newPairs) {
       const newRow = [
         email1,
         email2,
-        dateText,
+        dateText, // Date in ISO format yyyy-mm-dd
         pairingText,
       ];
       table2Data.push(newRow);
@@ -141,8 +150,10 @@ function excelDateToJSDate(serial) {
 }
 
 /**
- * Parse date from various formats (Excel serial, dd/mm/yyyy text, ISO string)
- * @param {number|string} dateValue - Date in any format
+ * Parse date from various formats
+ * Accepts: Excel serial numbers, dd/mm/yyyy, yyyy-mm-dd, dd-mm-yyyy, and other common formats
+ * Output: All dates will be written in ISO format (yyyy-mm-dd)
+ * @param {number|string} dateValue - Date in any common format
  * @returns {Date|null} - Parsed date or null
  */
 function parseDate(dateValue) {
@@ -153,58 +164,126 @@ function parseDate(dateValue) {
     return excelDateToJSDate(dateValue);
   }
 
-  // Text date in dd/mm/yyyy format
+  // String formats
   if (typeof dateValue === 'string') {
-    // Try dd/mm/yyyy format first
-    const ddmmyyyyMatch = dateValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (ddmmyyyyMatch) {
-      const day = parseInt(ddmmyyyyMatch[1], 10);
-      const month = parseInt(ddmmyyyyMatch[2], 10) - 1; // months are 0-indexed
-      const year = parseInt(ddmmyyyyMatch[3], 10);
+    const trimmed = dateValue.trim();
+
+    // Try ISO format yyyy-mm-dd (e.g., "2024-03-05")
+    const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+    if (isoMatch) {
+      const year = parseInt(isoMatch[1], 10);
+      const month = parseInt(isoMatch[2], 10) - 1; // months are 0-indexed
+      const day = parseInt(isoMatch[3], 10);
       return new Date(year, month, day);
     }
 
-    // Fallback to standard Date parsing (handles ISO format, etc.)
-    const parsed = new Date(dateValue);
-    return isNaN(parsed.getTime()) ? null : parsed;
+    // Try dd/mm/yyyy format (e.g., "05/03/2024" = March 5, 2024)
+    const ddmmyyyySlashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (ddmmyyyySlashMatch) {
+      const day = parseInt(ddmmyyyySlashMatch[1], 10);
+      const month = parseInt(ddmmyyyySlashMatch[2], 10) - 1;
+      const year = parseInt(ddmmyyyySlashMatch[3], 10);
+      return new Date(year, month, day);
+    }
+
+    // Try dd-mm-yyyy format (e.g., "05-03-2024" = March 5, 2024)
+    const ddmmyyyyDashMatch = trimmed.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
+    if (ddmmyyyyDashMatch) {
+      const day = parseInt(ddmmyyyyDashMatch[1], 10);
+      const month = parseInt(ddmmyyyyDashMatch[2], 10) - 1;
+      const year = parseInt(ddmmyyyyDashMatch[3], 10);
+      return new Date(year, month, day);
+    }
+
+    // Try yyyy/mm/dd format (e.g., "2024/03/05")
+    const yyyymmddSlashMatch = trimmed.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
+    if (yyyymmddSlashMatch) {
+      const year = parseInt(yyyymmddSlashMatch[1], 10);
+      const month = parseInt(yyyymmddSlashMatch[2], 10) - 1;
+      const day = parseInt(yyyymmddSlashMatch[3], 10);
+      return new Date(year, month, day);
+    }
+
+    // No valid format found
+    console.warn(`Unable to parse date: "${dateValue}" - expected dd/mm/yyyy, yyyy-mm-dd, or similar format`);
+    return null;
   }
 
   return null;
 }
 
 /**
- * Format date as dd/mm/yyyy text string
- * @param {Date} date
- * @returns {string}
+ * Format date as ISO format (yyyy-mm-dd)
+ * IMPORTANT: This is the ONLY date format used for writing dates in the History spreadsheet
+ * ISO format is unambiguous, internationally standardized, and sorts correctly
+ * @param {Date} date - JavaScript Date object
+ * @returns {string} - Date string in yyyy-mm-dd format
  */
-function formatDateAsDDMMYYYY(date) {
-  const day = String(date.getDate()).padStart(2, '0');
-  const month = String(date.getMonth() + 1).padStart(2, '0'); // months are 0-indexed
+function formatDateAsISO(date) {
   const year = date.getFullYear();
-  return `${day}/${month}/${year}`;
+  const month = String(date.getMonth() + 1).padStart(2, '0'); // months are 0-indexed
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 /**
- * Normalize all dates in Table 2 to dd/mm/yyyy format
- * Converts Excel serial numbers and other formats to consistent text format
- * @param {Array} table2Data - Historical pairing data
+ * Normalize all dates in Table 2 (History) to ISO format (yyyy-mm-dd)
+ * Converts Excel serial numbers, dd/mm/yyyy, and other formats to consistent ISO format
+ * This ensures ALL dates in the system use the same format for storage
+ * @param {Array} table2Data - Historical pairing data (Table 2)
  */
 function normalizeDatesInTable2(table2Data) {
+  let normalized = 0;
+  let alreadyCorrect = 0;
+  let failed = 0;
+
   // Skip header row, process data rows
   for (let i = 1; i < table2Data.length; i++) {
     const row = table2Data[i];
     if (!row || !row[2]) continue; // Column 2 is the date column
 
     const dateValue = row[2];
+    const originalValue = dateValue;
 
-    // Parse the date from any format
+    // Parse the date from any format (Excel serial, dd/mm/yyyy, ISO, etc.)
     const parsedDate = parseDate(dateValue);
 
-    // Convert to dd/mm/yyyy text format
+    // Convert to ISO format yyyy-mm-dd (the ONLY format we use for writing)
     if (parsedDate) {
-      row[2] = formatDateAsDDMMYYYY(parsedDate);
+      const formatted = formatDateAsISO(parsedDate);
+      if (originalValue !== formatted) {
+        normalized++;
+      } else {
+        alreadyCorrect++;
+      }
+      row[2] = formatted;
+    } else {
+      failed++;
     }
   }
+
+  if (normalized > 0 || failed > 0) {
+    console.log(`Date normalization: ${normalized} converted to ISO format, ${alreadyCorrect} already correct, ${failed} failed`);
+  }
+}
+
+/**
+ * Remove empty rows from Table 2
+ * A row is considered empty if it lacks email1 and email2
+ * @param {Array} table2Data - Historical pairing data
+ * @returns {Array} - Cleaned table data without empty rows
+ */
+function removeEmptyRows(table2Data) {
+  if (!table2Data || table2Data.length === 0) return table2Data;
+
+  // Keep the header row (index 0) and filter data rows
+  const header = table2Data[0];
+  const dataRows = table2Data.slice(1).filter(row => {
+    // A row is valid if it has at least email1 and email2
+    return row && row[0] && row[1];
+  });
+
+  return [header, ...dataRows];
 }
 
 /**

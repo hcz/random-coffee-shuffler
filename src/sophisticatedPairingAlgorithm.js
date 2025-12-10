@@ -7,6 +7,9 @@
  * - Social network analysis with community detection
  * - Exponential decay for meeting history
  * - Constraint satisfaction (hard and soft constraints)
+ *
+ * DATE FORMAT: All dates passed to this algorithm are in ISO format (yyyy-mm-dd)
+ * (normalization happens in index.js before calling this module)
  */
 
 const munkres = require('munkres-js');
@@ -46,43 +49,21 @@ const ALGORITHM_CONFIG = {
 };
 
 /**
- * Convert Excel serial date to JavaScript Date
- */
-function excelDateToJSDate(serial) {
-  if (typeof serial !== 'number') return null;
-  const utc_days = Math.floor(serial - 25569);
-  const utc_value = utc_days * 86400;
-  const date_info = new Date(utc_value * 1000);
-  return new Date(date_info.getFullYear(), date_info.getMonth(), date_info.getDate());
-}
-
-/**
- * Parse date from various formats (Excel serial, dd/mm/yyyy text, ISO string)
- * @param {number|string} dateValue - Date in any format
+ * Parse date in ISO format (yyyy-mm-dd) to JavaScript Date
+ * Note: All dates are normalized to ISO format before being passed to this algorithm
+ * @param {string} dateValue - Date string in yyyy-mm-dd format
  * @returns {Date|null} - Parsed date or null
  */
 function parseDate(dateValue) {
-  if (!dateValue) return null;
+  if (!dateValue || typeof dateValue !== 'string') return null;
 
-  // Excel serial number
-  if (typeof dateValue === 'number') {
-    return excelDateToJSDate(dateValue);
-  }
-
-  // Text date in dd/mm/yyyy format
-  if (typeof dateValue === 'string') {
-    // Try dd/mm/yyyy format first
-    const ddmmyyyyMatch = dateValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (ddmmyyyyMatch) {
-      const day = parseInt(ddmmyyyyMatch[1], 10);
-      const month = parseInt(ddmmyyyyMatch[2], 10) - 1; // months are 0-indexed
-      const year = parseInt(ddmmyyyyMatch[3], 10);
-      return new Date(year, month, day);
-    }
-
-    // Fallback to standard Date parsing (handles ISO format, etc.)
-    const parsed = new Date(dateValue);
-    return isNaN(parsed.getTime()) ? null : parsed;
+  // Parse ISO format yyyy-mm-dd
+  const isoMatch = dateValue.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
+  if (isoMatch) {
+    const year = parseInt(isoMatch[1], 10);
+    const month = parseInt(isoMatch[2], 10) - 1; // months are 0-indexed
+    const day = parseInt(isoMatch[3], 10);
+    return new Date(year, month, day);
   }
 
   return null;
@@ -118,19 +99,19 @@ function buildConnectionGraph(table1Data, table2Data) {
   }
 
   // Add edges for meeting history
-  // Table 2 structure: Column 0 = email1, Column 1 = email2, Column 2 = date, Column 3 = text
+  // Table 2 structure: Column 0 = email1, Column 1 = email2, Column 2 = date (yyyy-mm-dd), Column 3 = text
   for (let i = 1; i < table2Data.length; i++) {
     const row = table2Data[i];
     if (!row || !row[0] || !row[1]) continue;
 
     const email1 = row[0];
     const email2 = row[1];
-    const dateValue = row[2];
+    const dateValue = row[2]; // Expected format: yyyy-mm-dd (ISO)
 
     // Only add edge if both employees still exist in active list
     if (!graph.hasNode(email1) || !graph.hasNode(email2)) continue;
 
-    // Parse date from any format (Excel serial, dd/mm/yyyy text, ISO string)
+    // Parse date from ISO format (yyyy-mm-dd)
     const meetingDate = parseDate(dateValue);
 
     if (!graph.hasEdge(email1, email2)) {
@@ -403,6 +384,9 @@ function hungarianMatching(employees, costMatrix) {
     // Skip dummy assignments
     if (adjustedEmployees[i] === null || adjustedEmployees[j] === null) continue;
 
+    // Skip if same email (duplicate person trying to pair with themselves)
+    if (adjustedEmployees[i] === adjustedEmployees[j]) continue;
+
     // Add the pair (Hungarian algorithm guarantees each person appears in exactly one assignment)
     pairs.push([adjustedEmployees[i], adjustedEmployees[j]]);
     used.add(i);
@@ -521,6 +505,5 @@ function generateOptimalPairs(table1Data, table2Data) {
 }
 
 module.exports = {
-  generateOptimalPairs,
-  ALGORITHM_CONFIG
+  generateOptimalPairs
 };
