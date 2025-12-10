@@ -51,6 +51,9 @@ async function main() {
     console.log(`Table 1 has ${table1Data.length} rows`);
     console.log(`Table 2 has ${table2Data.length} rows`);
 
+    // Normalize all dates in Table 2 to dd/mm/yyyy format
+    normalizeDatesInTable2(table2Data);
+
     // Step 3: Generate optimal pairs using sophisticated algorithm
     const newPairs = generateOptimalPairs(
       table1Data,
@@ -127,14 +130,46 @@ async function main() {
 }
 
 /**
- * Convert JavaScript Date to Excel serial date
- * @param {Date} date
- * @returns {number}
+ * Convert Excel serial date to JavaScript Date
  */
-function dateToExcelSerial(date) {
-  const epoch = new Date(1899, 11, 30);
-  const msPerDay = 86400000;
-  return (date - epoch) / msPerDay;
+function excelDateToJSDate(serial) {
+  if (typeof serial !== 'number') return null;
+  const utc_days = Math.floor(serial - 25569);
+  const utc_value = utc_days * 86400;
+  const date_info = new Date(utc_value * 1000);
+  return new Date(date_info.getFullYear(), date_info.getMonth(), date_info.getDate());
+}
+
+/**
+ * Parse date from various formats (Excel serial, dd/mm/yyyy text, ISO string)
+ * @param {number|string} dateValue - Date in any format
+ * @returns {Date|null} - Parsed date or null
+ */
+function parseDate(dateValue) {
+  if (!dateValue) return null;
+
+  // Excel serial number
+  if (typeof dateValue === 'number') {
+    return excelDateToJSDate(dateValue);
+  }
+
+  // Text date in dd/mm/yyyy format
+  if (typeof dateValue === 'string') {
+    // Try dd/mm/yyyy format first
+    const ddmmyyyyMatch = dateValue.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+    if (ddmmyyyyMatch) {
+      const day = parseInt(ddmmyyyyMatch[1], 10);
+      const month = parseInt(ddmmyyyyMatch[2], 10) - 1; // months are 0-indexed
+      const year = parseInt(ddmmyyyyMatch[3], 10);
+      return new Date(year, month, day);
+    }
+
+    // Fallback to standard Date parsing (handles ISO format, etc.)
+    const parsed = new Date(dateValue);
+    return isNaN(parsed.getTime()) ? null : parsed;
+  }
+
+  return null;
 }
 
 /**
@@ -147,6 +182,29 @@ function formatDateAsDDMMYYYY(date) {
   const month = String(date.getMonth() + 1).padStart(2, '0'); // months are 0-indexed
   const year = date.getFullYear();
   return `${day}/${month}/${year}`;
+}
+
+/**
+ * Normalize all dates in Table 2 to dd/mm/yyyy format
+ * Converts Excel serial numbers and other formats to consistent text format
+ * @param {Array} table2Data - Historical pairing data
+ */
+function normalizeDatesInTable2(table2Data) {
+  // Skip header row, process data rows
+  for (let i = 1; i < table2Data.length; i++) {
+    const row = table2Data[i];
+    if (!row || !row[2]) continue; // Column 2 is the date column
+
+    const dateValue = row[2];
+
+    // Parse the date from any format
+    const parsedDate = parseDate(dateValue);
+
+    // Convert to dd/mm/yyyy text format
+    if (parsedDate) {
+      row[2] = formatDateAsDDMMYYYY(parsedDate);
+    }
+  }
 }
 
 /**

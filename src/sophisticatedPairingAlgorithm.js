@@ -315,14 +315,14 @@ function buildCostMatrix(employees, graph, communities) {
 
   for (let i = 0; i < n; i++) {
     for (let j = 0; j < n; j++) {
-      if (i === j) {
-        // Can't pair with self - maximum penalty
+      const email1 = employees[i];
+      const email2 = employees[j];
+
+      // Can't pair with self (same index or same email for "twice" users)
+      if (i === j || email1 === email2) {
         costMatrix[i][j] = ALGORITHM_CONFIG.HARD_CONSTRAINT_PENALTY;
         continue;
       }
-
-      const email1 = employees[i];
-      const email2 = employees[j];
 
       // Calculate component scores
       const diversityScore = calculateDiversityScore(email1, email2, graph) || 0;
@@ -394,16 +394,19 @@ function hungarianMatching(employees, costMatrix) {
   const used = new Set();
 
   for (const [i, j] of assignments) {
-    // Skip diagonal, already used, or dummy assignments
-    if (i === j || used.has(i) || used.has(j)) continue;
+    // Skip self-pairing (diagonal)
+    if (i === j) continue;
+
+    // Skip if either person is already paired
+    if (used.has(i) || used.has(j)) continue;
+
+    // Skip dummy assignments
     if (adjustedEmployees[i] === null || adjustedEmployees[j] === null) continue;
 
-    // Only add each pair once (avoid duplicates since matching is symmetric)
-    if (i < j) {
-      pairs.push([adjustedEmployees[i], adjustedEmployees[j]]);
-      used.add(i);
-      used.add(j);
-    }
+    // Add the pair (Hungarian algorithm guarantees each person appears in exactly one assignment)
+    pairs.push([adjustedEmployees[i], adjustedEmployees[j]]);
+    used.add(i);
+    used.add(j);
   }
 
   return pairs;
@@ -498,6 +501,18 @@ function generateOptimalPairs(table1Data, table2Data) {
   console.log(`  - Cross-community pairings: ${crossCommunityPairs}/${pairs.length} (${(crossCommunityPairs/pairs.length*100).toFixed(1)}%)`);
   console.log(`  - Brand new pairings: ${newPairs}/${pairs.length} (${(newPairs/pairs.length*100).toFixed(1)}%)`);
   console.log(`  - Repeated pairings: ${pairs.length - newPairs}/${pairs.length}`);
+
+  // Verify all employees are paired
+  const pairedEmployees = new Set();
+  for (const [email1, email2] of pairs) {
+    pairedEmployees.add(email1);
+    pairedEmployees.add(email2);
+  }
+  const unpairedEmployees = employees.filter(email => !pairedEmployees.has(email));
+  if (unpairedEmployees.length > 0) {
+    console.log(`\n⚠ WARNING: ${unpairedEmployees.length} employee(s) not paired:`);
+    unpairedEmployees.forEach(email => console.log(`    - ${email}`));
+  }
 
   // Convert to expected format (just return email pairs)
   return pairs.map(([email1, email2]) => {
