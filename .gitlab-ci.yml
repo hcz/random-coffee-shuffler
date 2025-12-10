@@ -1,0 +1,95 @@
+# GitLab CI/CD Configuration for Random Coffee Pairing
+#
+# This pipeline runs the Random Coffee pairing algorithm to match employees
+# Environment variables are read from GitLab CI/CD Settings > Variables
+#
+# Required CI/CD Variables (set in GitLab repository settings):
+# - YANDEX_OAUTH_TOKEN: OAuth token for Yandex.Disk API access
+
+# Use Node.js 18 LTS Docker image
+image: node:18
+
+# Define pipeline stages
+stages:
+  - pair
+
+# Cache node_modules to speed up builds
+cache:
+  paths:
+    - node_modules/
+
+# Install dependencies (runs before each job)
+before_script:
+  - npm ci
+
+# Main pairing job: Generate and upload pairings
+generate_pairings:
+  stage: pair
+  script:
+    - echo "Starting Random Coffee pairing process..."
+
+    # Create .env file from GitLab CI/CD variables
+    - |
+      cat > .env << EOF
+      YANDEX_OAUTH_TOKEN=$YANDEX_OAUTH_TOKEN
+      YANDEX_FILE_PATH=$YANDEX_FILE_PATH
+      PAIRING_TEXT_BASE=$PAIRING_TEXT_BASE
+      SHEET1_NAME=$SHEET1_NAME
+      SHEET2_NAME=$SHEET2_NAME
+      EOF
+
+    # Run the pairing script
+    - npm start
+
+    # Clean up .env file (security best practice)
+    - rm -f .env
+
+  # Run only on main branch or when manually triggered
+  only:
+    - main
+    - web
+
+  # Retry once if the job fails (in case of network issues)
+  retry: 1
+
+  # Allow manual triggering
+  when: manual
+
+  # Clean up temporary files
+  after_script:
+    - rm -f temp_spreadsheet.xlsx
+    - rm -f .env
+
+# Optional: Scheduled pairing job
+# Uncomment this section to run pairings on a schedule
+# To activate: Go to CI/CD > Schedules in GitLab and create a new schedule
+#
+# scheduled_pairings:
+#   stage: pair
+#   script:
+#     - echo "Running scheduled Random Coffee pairing..."
+#
+#     # Create .env file from GitLab CI/CD variables
+#     - |
+#       cat > .env << EOF
+#       YANDEX_OAUTH_TOKEN=$YANDEX_OAUTH_TOKEN
+#       YANDEX_FILE_PATH=$YANDEX_FILE_PATH
+#       PAIRING_TEXT_BASE=$PAIRING_TEXT_BASE
+#       SHEET1_NAME=$SHEET1_NAME
+#       SHEET2_NAME=$SHEET2_NAME
+#       EOF
+#
+#     # Run the pairing script
+#     - npm start
+#
+#     # Clean up .env file
+#     - rm -f .env
+#
+#   only:
+#     - schedules
+#
+#   retry: 1
+#
+#   after_script:
+#     - rm -f temp_spreadsheet.xlsx
+#     - rm -f .env

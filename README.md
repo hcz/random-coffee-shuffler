@@ -231,6 +231,34 @@ The algorithm provides detailed metrics after each run:
 - Network density and connectivity
 - Average connections per employee
 
+## GitLab CI/CD Integration
+
+The project includes GitLab CI/CD configuration for automated pairing runs.
+
+### Quick Setup
+
+1. **Add CI/CD Variables** in your GitLab repository:
+   - Go to **Settings** > **CI/CD** > **Variables**
+   - Add `YANDEX_OAUTH_TOKEN` (mark as protected and masked)
+   - Optionally add other configuration variables
+
+2. **Push the `.gitlab-ci.yml`** file to your repository
+
+3. **Run the pipeline**:
+   - Go to **CI/CD** > **Pipelines**
+   - Click **Run pipeline**
+   - Manually trigger the `generate_pairings` job
+
+### Scheduled Runs
+
+To run pairings automatically on a schedule:
+
+1. Go to **CI/CD** > **Schedules**
+2. Create a new schedule (e.g., every Monday at 9:00 AM)
+3. Uncomment the `scheduled_pairings` job in `.gitlab-ci.yml`
+
+**For detailed setup instructions, see [GitLab CI/CD Setup Guide](docs/GITLAB_CI_SETUP.md)**
+
 ## Project Structure
 
 ```
