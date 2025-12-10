@@ -19,17 +19,13 @@ const Graph = require('graphology');
  * Configuration for algorithm tuning
  */
 const ALGORITHM_CONFIG = {
-  // Weight parameters for multi-objective optimization (α, β, γ, δ)
+  // Weight parameters for multi-objective optimization (α, γ)
+  // Note: NO repetitions allowed - people who have met before will NOT be paired again
+  // unless there are no other options
   WEIGHTS: {
-    DIVERSITY: 0.4,        // α: Cross-departmental, level, location diversity
-    HISTORY_PENALTY: 0.3,  // β: Penalty for recent meetings
-    NETWORK_OPTIMIZATION: 0.2,  // γ: Break silos, connect components
-    PREFERENCE: 0.1        // δ: User preferences (if available)
+    DIVERSITY: 0.6,               // α: Cross-departmental, level, location diversity
+    NETWORK_OPTIMIZATION: 0.4,    // γ: Break silos, connect components
   },
-
-  // History decay parameters
-  HISTORY_DECAY_RATE: 0.15,  // Exponential decay rate (higher = faster decay)
-  REPETITION_PENALTY: 100,    // Base penalty for repeated pairings
 
   // Diversity scoring weights
   DIVERSITY_FACTORS: {
@@ -44,8 +40,7 @@ const ALGORITHM_CONFIG = {
   BRIDGE_BUILDING_BONUS: 30,  // Bonus for creating network bridges
 
   // Constraint penalties
-  HARD_CONSTRAINT_PENALTY: 10000,  // Effectively prohibits the pairing
-  SOFT_CONSTRAINT_PENALTY: 20      // Mild discouragement
+  HARD_CONSTRAINT_PENALTY: 10000,  // Prohibits pairing (self-pairing, repeated pairings)
 };
 
 /**
@@ -219,38 +214,6 @@ function calculateDiversityScore(email1, email2, graph) {
 }
 
 /**
- * Calculate history penalty with exponential decay
- * Recent meetings have higher penalty than old ones
- */
-function calculateHistoryPenalty(email1, email2, graph) {
-  if (!graph.hasEdge(email1, email2)) {
-    return 0; // Never met = no penalty
-  }
-
-  const edge = graph.getEdgeAttributes(email1, email2);
-  const meetings = edge.meetings || [];
-  const now = new Date();
-
-  let totalPenalty = 0;
-
-  for (const meetingDate of meetings) {
-    if (!meetingDate) continue;
-
-    // Calculate days since meeting
-    const daysSince = (now - meetingDate) / (1000 * 60 * 60 * 24);
-
-    // Exponential decay: penalty = base * e^(-λ * days)
-    // More recent meetings have exponentially higher penalty
-    const decayedPenalty = ALGORITHM_CONFIG.REPETITION_PENALTY *
-                          Math.exp(-ALGORITHM_CONFIG.HISTORY_DECAY_RATE * daysSince);
-
-    totalPenalty += decayedPenalty;
-  }
-
-  return totalPenalty;
-}
-
-/**
  * Calculate network optimization score
  * Rewards pairings that improve network structure (break silos, create bridges)
  */
@@ -287,8 +250,11 @@ function calculateNetworkScore(email1, email2, graph, communities) {
  * Build cost matrix for Hungarian algorithm
  * Lower cost = better pairing (we minimize cost)
  *
- * Cost = -1 * (α·diversity - β·history_penalty + γ·network_score)
- * Negative because we minimize cost but want to maximize score
+ * HARD CONSTRAINT: People who have met before should NOT be paired again
+ * unless there is absolutely no alternative (all possible new pairings exhausted)
+ *
+ * For new pairings: Cost = -1 * (α·diversity + γ·network_score)
+ * For repeated pairings: Cost = HARD_CONSTRAINT_PENALTY (effectively prohibited)
  */
 function buildCostMatrix(employees, graph, communities) {
   const n = employees.length;
@@ -305,19 +271,23 @@ function buildCostMatrix(employees, graph, communities) {
         continue;
       }
 
-      // Calculate component scores
+      // HARD CONSTRAINT: If these two people have met before, heavily penalize this pairing
+      // This ensures the algorithm will ONLY use repeated pairings if there's no other option
+      if (graph.hasEdge(email1, email2)) {
+        costMatrix[i][j] = ALGORITHM_CONFIG.HARD_CONSTRAINT_PENALTY;
+        continue;
+      }
+
+      // This is a NEW pairing (they've never met) - calculate desirability score
       const diversityScore = calculateDiversityScore(email1, email2, graph) || 0;
-      const historyPenalty = calculateHistoryPenalty(email1, email2, graph) || 0;
       const networkScore = calculateNetworkScore(email1, email2, graph, communities) || 0;
 
-      // Weighted multi-objective score
+      // Score for new pairings (higher score = better pairing)
       const totalScore =
-        ALGORITHM_CONFIG.WEIGHTS.DIVERSITY * diversityScore -
-        ALGORITHM_CONFIG.WEIGHTS.HISTORY_PENALTY * historyPenalty +
+        ALGORITHM_CONFIG.WEIGHTS.DIVERSITY * diversityScore +
         ALGORITHM_CONFIG.WEIGHTS.NETWORK_OPTIMIZATION * networkScore;
 
-      // Convert to cost (negate since we minimize cost)
-      // Ensure the result is a valid number
+      // Convert to cost (negate since we minimize cost but want to maximize score)
       const cost = isNaN(totalScore) ? 0 : -totalScore;
       costMatrix[i][j] = cost;
     }
@@ -453,9 +423,9 @@ function generateOptimalPairs(table1Data, table2Data) {
 
   // Step 4: Build cost matrix with multi-objective optimization
   console.log('\nStep 4: Computing optimal matching...');
-  console.log('  - Optimizing for:');
+  console.log('  - Strategy: NO REPETITIONS - only pair people who have never met');
+  console.log('  - Optimizing new pairings for:');
   console.log(`    * Diversity (weight: ${ALGORITHM_CONFIG.WEIGHTS.DIVERSITY})`);
-  console.log(`    * History avoidance (weight: ${ALGORITHM_CONFIG.WEIGHTS.HISTORY_PENALTY})`);
   console.log(`    * Network optimization (weight: ${ALGORITHM_CONFIG.WEIGHTS.NETWORK_OPTIMIZATION})`);
 
   const costMatrix = buildCostMatrix(employees, graph, communities);
@@ -484,7 +454,13 @@ function generateOptimalPairs(table1Data, table2Data) {
   console.log('\nPairing Quality Metrics:');
   console.log(`  - Cross-community pairings: ${crossCommunityPairs}/${pairs.length} (${(crossCommunityPairs/pairs.length*100).toFixed(1)}%)`);
   console.log(`  - Brand new pairings: ${newPairs}/${pairs.length} (${(newPairs/pairs.length*100).toFixed(1)}%)`);
-  console.log(`  - Repeated pairings: ${pairs.length - newPairs}/${pairs.length}`);
+
+  const repeatedPairs = pairs.length - newPairs;
+  if (repeatedPairs > 0) {
+    console.log(`  ⚠ WARNING: ${repeatedPairs} repeated pairing(s) - everyone may have met everyone!`);
+  } else {
+    console.log(`  ✓ All pairings are NEW - no one is paired with someone they've met before!`);
+  }
 
   // Verify all employees are paired
   const pairedEmployees = new Set();
