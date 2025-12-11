@@ -84,6 +84,19 @@ The pipeline is set to run manually by default for safety:
 5. The pipeline will start and you'll see the `generate_pairings` job
 6. Click the play button (▶) to manually trigger the job
 
+### Example .gitlab-ci.yml file
+
+```yaml
+include:
+  remote: 'https://raw.githubusercontent.com/hcz/random-coffee-shuffler/refs/heads/main/.gitlab-ci.yml'
+
+generate_pairings:
+  before_script:
+    - git clone https://github.com/hcz/random-coffee-shuffler.git temp
+    - mv ./temp/* .
+    - npm ci
+```
+
 ### Scheduled Execution
 
 To run pairings automatically on a schedule:
