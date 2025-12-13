@@ -2,6 +2,8 @@
 
 A Node.js application that automatically creates user pairs for "random coffee" meetings by reading from a Yandex.Disk spreadsheet and intelligently avoiding recent pairings.
 
+<p style="display: flex; align-items: center; gap:6px;">Built with <img alt="Claude" height="14px" src="http://upload.wikimedia.org/wikipedia/commons/8/8a/Claude_AI_logo.svg"/></p>
+
 ## Features
 
 - Reads user data from Yandex.Disk spreadsheet (Excel format)
