@@ -613,4 +613,177 @@ describe('pairingAlgorithm', () => {
       expect(ALGORITHM_CONFIG.BRIDGE_BUILDING_BONUS).toBeGreaterThan(0);
     });
   });
+
+  describe('All Employees Matched Tests', () => {
+    it('should pair all 6 employees in first round (no history)', () => {
+      const table1Data = [
+        ['email', 'active', 'twice'],
+        ['a@test.com', true, ''],
+        ['b@test.com', true, ''],
+        ['c@test.com', true, ''],
+        ['d@test.com', true, ''],
+        ['e@test.com', true, ''],
+        ['f@test.com', true, ''],
+      ];
+      const table2Data = [['email1', 'email2', 'date', 'text']];
+
+      const pairs = generateOptimalPairs(table1Data, table2Data);
+
+      expect(pairs.length).toBe(3);
+      const allPaired = pairs.flat();
+      expect(new Set(allPaired).size).toBe(6);
+    });
+
+    it('should pair all 6 employees in second round (with history)', () => {
+      const table1Data = [
+        ['email', 'active', 'twice'],
+        ['a@test.com', true, ''],
+        ['b@test.com', true, ''],
+        ['c@test.com', true, ''],
+        ['d@test.com', true, ''],
+        ['e@test.com', true, ''],
+        ['f@test.com', true, ''],
+      ];
+      const table2Data = [
+        ['email1', 'email2', 'date', 'text'],
+        ['a@test.com', 'b@test.com', '2024-01-15', 'Round #1'],
+        ['c@test.com', 'd@test.com', '2024-01-15', 'Round #1'],
+        ['e@test.com', 'f@test.com', '2024-01-15', 'Round #1'],
+      ];
+
+      const pairs = generateOptimalPairs(table1Data, table2Data);
+
+      expect(pairs.length).toBe(3);
+      const allPaired = pairs.flat();
+      expect(new Set(allPaired).size).toBe(6);
+
+      // Verify no repeat pairs from history
+      const historyPairs = new Set(['a@test.com-b@test.com', 'c@test.com-d@test.com', 'e@test.com-f@test.com']);
+      for (const [e1, e2] of pairs) {
+        const pairKey = [e1, e2].sort().join('-');
+        expect(historyPairs.has(pairKey)).toBe(false);
+      }
+    });
+
+    it('should pair all 8 employees across multiple rounds', () => {
+      const table1Data = [
+        ['email', 'active', 'twice'],
+        ['a@test.com', true, ''],
+        ['b@test.com', true, ''],
+        ['c@test.com', true, ''],
+        ['d@test.com', true, ''],
+        ['e@test.com', true, ''],
+        ['f@test.com', true, ''],
+        ['g@test.com', true, ''],
+        ['h@test.com', true, ''],
+      ];
+
+      let table2Data = [['email1', 'email2', 'date', 'text']];
+
+      // Run 3 rounds and ensure everyone is paired each time
+      for (let round = 1; round <= 3; round++) {
+        const pairs = generateOptimalPairs(table1Data, table2Data);
+
+        expect(pairs.length).toBe(4);
+        const allPaired = pairs.flat();
+        expect(new Set(allPaired).size).toBe(8);
+
+        // Add pairs to history
+        for (const [e1, e2] of pairs) {
+          table2Data.push([e1, e2, `2024-0${round}-15`, `Round #${round}`]);
+        }
+      }
+    });
+
+    it('should pair all 10 employees in first round', () => {
+      const table1Data = [['email', 'active', 'twice']];
+      for (let i = 1; i <= 10; i++) {
+        table1Data.push([`user${i}@test.com`, true, '']);
+      }
+      const table2Data = [['email1', 'email2', 'date', 'text']];
+
+      const pairs = generateOptimalPairs(table1Data, table2Data);
+
+      expect(pairs.length).toBe(5);
+      const allPaired = pairs.flat();
+      expect(new Set(allPaired).size).toBe(10);
+    });
+
+    it('should pair all 12 employees across 5 rounds', () => {
+      const table1Data = [['email', 'active', 'twice']];
+      for (let i = 1; i <= 12; i++) {
+        table1Data.push([`user${i}@test.com`, true, '']);
+      }
+
+      let table2Data = [['email1', 'email2', 'date', 'text']];
+
+      for (let round = 1; round <= 5; round++) {
+        const pairs = generateOptimalPairs(table1Data, table2Data);
+
+        expect(pairs.length).toBe(6);
+        const allPaired = pairs.flat();
+        expect(new Set(allPaired).size).toBe(12);
+
+        // Add pairs to history
+        for (const [e1, e2] of pairs) {
+          table2Data.push([e1, e2, `2024-0${round}-15`, `Round #${round}`]);
+        }
+      }
+    });
+
+    it('should not leave any employee unpaired with even count', () => {
+      // Test specifically that no employees are stranded
+      const table1Data = [
+        ['email', 'active', 'twice'],
+        ['alice@test.com', true, ''],
+        ['bob@test.com', true, ''],
+        ['charlie@test.com', true, ''],
+        ['diana@test.com', true, ''],
+      ];
+      const table2Data = [
+        ['email1', 'email2', 'date', 'text'],
+        ['alice@test.com', 'bob@test.com', '2024-01-15', 'Round #1'],
+      ];
+
+      const pairs = generateOptimalPairs(table1Data, table2Data);
+
+      expect(pairs.length).toBe(2);
+      const pairedEmails = new Set(pairs.flat());
+
+      // All 4 employees should be paired
+      expect(pairedEmails.has('alice@test.com')).toBe(true);
+      expect(pairedEmails.has('bob@test.com')).toBe(true);
+      expect(pairedEmails.has('charlie@test.com')).toBe(true);
+      expect(pairedEmails.has('diana@test.com')).toBe(true);
+    });
+
+    it('should handle scenario where optimal matching could strand someone', () => {
+      // This is a tricky case where greedy could leave someone out
+      const table1Data = [
+        ['email', 'active', 'twice'],
+        ['a@test.com', true, ''],
+        ['b@test.com', true, ''],
+        ['c@test.com', true, ''],
+        ['d@test.com', true, ''],
+        ['e@test.com', true, ''],
+        ['f@test.com', true, ''],
+      ];
+      // History designed so that a greedy algorithm picking lowest cost might fail
+      const table2Data = [
+        ['email1', 'email2', 'date', 'text'],
+        ['a@test.com', 'b@test.com', '2024-01-15', 'R1'],
+        ['a@test.com', 'c@test.com', '2024-02-15', 'R2'],
+        ['b@test.com', 'c@test.com', '2024-03-15', 'R3'],
+        ['d@test.com', 'e@test.com', '2024-01-15', 'R1'],
+        ['d@test.com', 'f@test.com', '2024-02-15', 'R2'],
+        ['e@test.com', 'f@test.com', '2024-03-15', 'R3'],
+      ];
+
+      const pairs = generateOptimalPairs(table1Data, table2Data);
+
+      expect(pairs.length).toBe(3);
+      const allPaired = pairs.flat();
+      expect(new Set(allPaired).size).toBe(6);
+    });
+  });
 });

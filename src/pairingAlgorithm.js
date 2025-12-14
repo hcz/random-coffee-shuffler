@@ -297,7 +297,10 @@ function buildCostMatrix(employees, graph, communities) {
 }
 
 /**
- * Apply Hungarian algorithm to find optimal matching
+ * Apply optimal matching algorithm
+ *
+ * Uses a recursive backtracking approach with pruning to find the optimal
+ * set of pairs that minimizes total cost while ensuring everyone is paired.
  */
 function hungarianMatching(employees, costMatrix) {
   // Validate inputs
@@ -314,53 +317,142 @@ function hungarianMatching(employees, costMatrix) {
     }
   }
 
-  // Handle odd number of employees by adding a dummy employee
   const n = employees.length;
-  let adjustedMatrix = costMatrix;
-  let adjustedEmployees = employees;
+  const targetPairs = Math.floor(n / 2);
 
-  if (n % 2 !== 0) {
-    // Add dummy row and column with zero cost (will be ignored)
-    adjustedMatrix = costMatrix.map(row => [...row, 0]);
-    adjustedMatrix.push(Array(n + 1).fill(0));
-    adjustedEmployees = [...employees, null]; // null represents dummy
+  // Build list of all possible pairs with their costs (only i < j to avoid duplicates)
+  const possiblePairs = [];
+  for (let i = 0; i < n; i++) {
+    for (let j = i + 1; j < n; j++) {
+      // Skip if same person (shouldn't happen with i < j, but safety check)
+      if (employees[i] === employees[j]) continue;
+
+      // Use the cost from the matrix
+      const cost = costMatrix[i][j];
+      possiblePairs.push({ i, j, cost, email1: employees[i], email2: employees[j] });
+    }
   }
 
-  // Deep copy the matrix to ensure munkres-js doesn't have issues
-  const matrixCopy = adjustedMatrix.map(row => row.slice());
+  // Sort pairs by cost (ascending - lower cost is better)
+  possiblePairs.sort((a, b) => a.cost - b.cost);
 
-  // Munkres algorithm expects square matrix
-  let assignments;
+  // Use backtracking to find optimal matching
+  let bestMatching = null;
+  let bestCost = Infinity;
 
-  try {
-    assignments = munkres(matrixCopy);
-  } catch (error) {
-    console.error('Munkres algorithm error:', error.message);
-    console.error('Matrix sample:', JSON.stringify(matrixCopy.slice(0, 2)));
-    return [];
+  function backtrack(pairIndex, currentPairs, usedIndices, currentCost) {
+    // If we have enough pairs, check if this is the best solution
+    if (currentPairs.length === targetPairs) {
+      if (currentCost < bestCost) {
+        bestCost = currentCost;
+        bestMatching = [...currentPairs];
+      }
+      return;
+    }
+
+    // Pruning: if current cost already exceeds best, stop
+    if (currentCost >= bestCost) return;
+
+    // Pruning: if not enough pairs left to complete matching, stop
+    const remainingNeeded = targetPairs - currentPairs.length;
+    const remainingPairs = possiblePairs.length - pairIndex;
+    if (remainingPairs < remainingNeeded) return;
+
+    // Try each remaining pair
+    for (let i = pairIndex; i < possiblePairs.length; i++) {
+      const pair = possiblePairs[i];
+
+      // Skip if either person is already paired
+      if (usedIndices.has(pair.i) || usedIndices.has(pair.j)) continue;
+
+      // Add this pair and recurse
+      currentPairs.push(pair);
+      usedIndices.add(pair.i);
+      usedIndices.add(pair.j);
+
+      backtrack(i + 1, currentPairs, usedIndices, currentCost + pair.cost);
+
+      // Backtrack
+      currentPairs.pop();
+      usedIndices.delete(pair.i);
+      usedIndices.delete(pair.j);
+    }
   }
 
-  // Convert assignments to pairs
+  // For large groups, use greedy with look-ahead instead of full backtracking
+  if (n > 12) {
+    // Greedy with look-ahead: prefer pairs that don't strand others
+    return greedyWithLookahead(employees, costMatrix, possiblePairs, targetPairs);
+  }
+
+  // For smaller groups, use backtracking for optimal solution
+  backtrack(0, [], new Set(), 0);
+
+  // Convert best matching to output format
+  if (!bestMatching) return [];
+  return bestMatching.map(p => [p.email1, p.email2]);
+}
+
+/**
+ * Greedy algorithm with look-ahead for larger groups
+ * Avoids picking pairs that would strand others with only high-cost options
+ */
+function greedyWithLookahead(employees, costMatrix, sortedPairs, targetPairs) {
+  const n = employees.length;
+  const PENALTY = ALGORITHM_CONFIG.HARD_CONSTRAINT_PENALTY;
+
   const pairs = [];
   const used = new Set();
 
-  for (const [i, j] of assignments) {
-    // Skip self-pairing (diagonal)
-    if (i === j) continue;
+  while (pairs.length < targetPairs) {
+    let bestPair = null;
+    let bestScore = Infinity;
 
-    // Skip if either person is already paired
-    if (used.has(i) || used.has(j)) continue;
+    // Find the best pair to add next
+    for (const pair of sortedPairs) {
+      if (used.has(pair.i) || used.has(pair.j)) continue;
 
-    // Skip dummy assignments
-    if (adjustedEmployees[i] === null || adjustedEmployees[j] === null) continue;
+      // Calculate score: pair cost + penalty for stranding others
+      let score = pair.cost;
 
-    // Skip if same email (duplicate person trying to pair with themselves)
-    if (adjustedEmployees[i] === adjustedEmployees[j]) continue;
+      // Check if picking this pair would strand anyone
+      const testUsed = new Set(used);
+      testUsed.add(pair.i);
+      testUsed.add(pair.j);
 
-    // Add the pair (Hungarian algorithm guarantees each person appears in exactly one assignment)
-    pairs.push([adjustedEmployees[i], adjustedEmployees[j]]);
-    used.add(i);
-    used.add(j);
+      // Count available good pairs for remaining people
+      const remaining = [];
+      for (let k = 0; k < n; k++) {
+        if (!testUsed.has(k)) remaining.push(k);
+      }
+
+      // If odd number remaining (and not at last pair), that's fine
+      // But check if remaining pairs are all penalties
+      let allPenalties = true;
+      for (let ri = 0; ri < remaining.length && allPenalties; ri++) {
+        for (let rj = ri + 1; rj < remaining.length && allPenalties; rj++) {
+          if (costMatrix[remaining[ri]][remaining[rj]] < PENALTY) {
+            allPenalties = false;
+          }
+        }
+      }
+
+      // If this choice forces penalty pairs, add a penalty to score
+      if (remaining.length >= 2 && allPenalties) {
+        score += PENALTY * 0.5; // Discourage but don't prevent
+      }
+
+      if (score < bestScore) {
+        bestScore = score;
+        bestPair = pair;
+      }
+    }
+
+    if (!bestPair) break;
+
+    pairs.push([bestPair.email1, bestPair.email2]);
+    used.add(bestPair.i);
+    used.add(bestPair.j);
   }
 
   return pairs;
