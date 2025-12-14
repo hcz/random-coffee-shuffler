@@ -320,4 +320,12 @@ if (require.main === module) {
   main();
 }
 
-module.exports = { main };
+module.exports = {
+  main,
+  excelDateToJSDate,
+  parseDate,
+  formatDateAsISO,
+  normalizeDatesInTable2,
+  removeEmptyRows,
+  detectNextRoundNumber,
+};

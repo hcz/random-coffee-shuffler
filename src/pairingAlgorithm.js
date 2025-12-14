@@ -481,5 +481,13 @@ function generateOptimalPairs(table1Data, table2Data) {
 }
 
 module.exports = {
-  generateOptimalPairs
+  generateOptimalPairs,
+  buildConnectionGraph,
+  detectCommunities,
+  calculateDiversityScore,
+  calculateNetworkScore,
+  buildCostMatrix,
+  hungarianMatching,
+  parseDate,
+  ALGORITHM_CONFIG,
 };
