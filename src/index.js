@@ -98,7 +98,7 @@ async function main() {
         pairingText,
       ];
       table2Data.push(newRow);
-      console.log(`  Added pair: ${email1} - ${email2}`);
+      console.log(`${email1} - ${email2}`);
     }
 
     // Convert updated data back to worksheet
