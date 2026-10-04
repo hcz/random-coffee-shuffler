@@ -187,51 +187,41 @@ Result:
 
 ## Algorithm Details
 
-This application uses a **sophisticated matching algorithm** based on computer science research, combining graph theory, optimization algorithms, and social network analysis. Unlike competitors that use simple random pairing, this implementation delivers provably optimal matches.
+This application uses a weighted matching algorithm that combines graph analysis of past meetings with a search for a low-cost assignment of pairs for the current round.
 
-### Core Algorithm: Hungarian Algorithm (Munkres)
+### Core Algorithm: Size-Dependent Matching
 
-The system uses the **Hungarian Algorithm** for optimal weighted bipartite matching (O(n³) complexity), finding the best possible pairing given multiple competing objectives.
+Rather than a single matching procedure, the implementation switches strategies based on group size:
 
-### Multi-Objective Optimization
+- **Groups of 12 or fewer**: exhaustive **backtracking with branch-and-bound pruning**. This explores the full space of pair-sets and returns the matching with the lowest total cost — optimal for the given cost matrix.
+- **Groups larger than 12**: a **greedy algorithm with one-step look-ahead**. It repeatedly picks the cheapest available pair, adding a penalty when a choice would strand the remaining people into forced repeat-pairings. This is a heuristic and is **not guaranteed to be optimal**.
 
-The algorithm optimizes four objectives simultaneously with configurable weights:
+The threshold (`n > 12`) is a hard-coded cutoff in `src/pairingAlgorithm.js` chosen to keep backtracking tractable.
 
-1. **Diversity Maximization (40% weight)**
-   - Prioritizes employees with few common connections
-   - Encourages cross-functional networking
-   - Creates varied professional relationships
+### Multi-Objective Cost Function
 
-2. **History-Aware Matching (30% weight)**
-   - Uses **exponential decay** for meeting history
-   - Recent meetings incur heavy penalties
-   - Distant past meetings have minimal penalty
-   - Naturally prevents repetitive pairings
+For each candidate pair, a cost is derived from two weighted objectives (see `ALGORITHM_CONFIG.WEIGHTS` in `src/pairingAlgorithm.js`):
 
-3. **Network Structure Optimization (20% weight)**
-   - Detects organizational silos using community detection
-   - Prioritizes **cross-community pairings** to break silos
-   - Creates **bridge connections** between disconnected groups
-   - Optimizes for "small world" network properties
+1. **Diversity (weight: 0.6)**
+   - Rewards pairs with few common neighbors in the historical meeting graph
+   - Encourages cross-group networking
 
-4. **Preference Matching (10% weight)**
-   - Reserved for future user preference features
+2. **Network Optimization (weight: 0.4)**
+   - Rewards **cross-community pairings** (communities are detected as connected components of the meeting graph)
+   - Rewards **bridge connections** between low-degree and high-degree nodes
 
-### Key Features
+### History Handling
 
-- **Connection Graph Analysis**: Builds network graph of all historical meetings
-- **Community Detection**: Identifies insular groups and systematically dissolves them
-- **Exponential History Decay**: Recent meetings penalized exponentially more than old ones
-- **Network Metrics**: Tracks average degree, cross-community connections, pairing quality
-- **Guaranteed Optimization**: Finds mathematically optimal solution (not just "good enough")
+History is treated as a **hard constraint**, not a soft exponential decay: any pair of people who have met before is assigned a large penalty cost (`HARD_CONSTRAINT_PENALTY = 10000`). The matcher will only produce a repeat pairing if no all-new matching exists.
 
-### Algorithm Performance
+### Reported Metrics
 
-The algorithm provides detailed metrics after each run:
-- Cross-community pairing percentage
-- Brand new vs. repeated pairings
-- Network density and connectivity
+After each run the algorithm logs:
+- Number of detected communities
 - Average connections per employee
+- Cross-community pairing percentage
+- Count of brand-new vs. repeated pairings
+- Any employees left unpaired
 
 ## GitLab CI/CD Integration
 
@@ -269,7 +259,7 @@ random-coffee/
 │   ├── index.js                # Main application script
 │   ├── config.js               # Configuration loader
 │   ├── yandexDiskClient.js     # Yandex.Disk API client
-│   └── pairingAlgorithm.js     # Advanced matching algorithm (Hungarian)
+│   └── pairingAlgorithm.js     # Weighted matching (backtracking / greedy w/ look-ahead)
 ├── docs/
 │   ├── GITLAB_CI_SETUP.md      # GitLab CI/CD setup guide
 │   └── ...                     # Other documentation
@@ -294,7 +284,6 @@ The application includes error handling for:
 - `xlsx` - Reading and writing Excel files
 - `axios` - HTTP client for Yandex.Disk API
 - `dotenv` - Environment variable management
-- `munkres-js` - Hungarian Algorithm implementation for optimal matching
 - `graphology` - Graph data structure for connection network analysis
 - `graphology-metrics` - Network metrics (centrality, clustering, etc.)
 
