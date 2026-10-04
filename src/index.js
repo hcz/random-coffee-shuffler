@@ -2,330 +2,230 @@ const XLSX = require('xlsx');
 const fs = require('fs');
 const config = require('./config');
 const YandexDiskClient = require('./yandexDiskClient');
-const { generateOptimalPairs } = require('./pairingAlgorithm');
+const { generatePairs } = require('./pairingAlgorithm');
+
+// History sheet columns: email1 | email2 | date (yyyy-mm-dd) | round label
+const HISTORY_DATE_COLUMN = 2;
+const HISTORY_ROUND_COLUMN = 3;
+
+// Days between the Excel epoch (1899-12-30) and the Unix epoch (1970-01-01)
+const EXCEL_TO_UNIX_EPOCH_DAYS = 25569;
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+// Accepted date formats: yyyy-mm-dd, yyyy/mm/dd, dd/mm/yyyy, dd-mm-yyyy
+const YEAR_FIRST_DATE_PATTERN = /^(?<year>\d{4})(?<sep>[-/])(?<month>\d{1,2})\k<sep>(?<day>\d{1,2})$/;
+const DAY_FIRST_DATE_PATTERN = /^(?<day>\d{1,2})(?<sep>[-/])(?<month>\d{1,2})\k<sep>(?<year>\d{4})$/;
 
 /**
- * Main function to process the spreadsheet
+ * Download the spreadsheet, append a new round of pairs to the History sheet
+ * and upload the result back to Yandex.Disk
  */
 async function main() {
+  const { yandexDisk, spreadsheet, localFile } = config;
+
   try {
     console.log('Starting Random Coffee pairing process...\n');
 
-    // Validate configuration
-    if (!config.yandexDisk.oauthToken) {
+    if (!yandexDisk.oauthToken) {
       throw new Error('YANDEX_OAUTH_TOKEN is not set in .env file');
     }
+    const diskClient = new YandexDiskClient(yandexDisk.oauthToken);
 
-    // Initialize Yandex.Disk client
-    const yandexClient = new YandexDiskClient(config.yandexDisk.oauthToken);
-
-    // Step 1: Download spreadsheet from Yandex.Disk
     console.log('Step 1: Downloading spreadsheet from Yandex.Disk...');
-    await yandexClient.downloadFile(
-      config.yandexDisk.filePath,
-      config.localFile.downloadPath
-    );
+    await diskClient.downloadFile(yandexDisk.filePath, localFile.downloadPath);
 
-    // Step 2: Read the spreadsheet
     console.log('\nStep 2: Reading spreadsheet...');
-    const workbook = XLSX.readFile(config.localFile.downloadPath);
+    const workbook = XLSX.readFile(localFile.downloadPath);
+    const employeeRows = readSheetRows(workbook, spreadsheet.employeesSheetName);
+    const rawHistoryRows = readSheetRows(workbook, spreadsheet.historySheetName);
+    console.log(`Employees sheet has ${employeeRows.length} rows`);
 
-    // Get sheets
-    const sheet1Name = config.spreadsheet.sheet1Name;
-    const sheet2Name = config.spreadsheet.sheet2Name;
-
-    if (!workbook.Sheets[sheet1Name]) {
-      throw new Error(`Sheet "${sheet1Name}" not found in workbook`);
-    }
-    if (!workbook.Sheets[sheet2Name]) {
-      throw new Error(`Sheet "${sheet2Name}" not found in workbook`);
-    }
-
-    const sheet1 = workbook.Sheets[sheet1Name];
-    const sheet2 = workbook.Sheets[sheet2Name];
-
-    // Convert sheets to JSON arrays
-    const table1Data = XLSX.utils.sheet_to_json(sheet1, { header: 1 });
-    let table2Data = XLSX.utils.sheet_to_json(sheet2, { header: 1 });
-
-    console.log(`Table 1 has ${table1Data.length} rows`);
-
-    // Normalize all dates in Table 2 to dd/mm/yyyy format
-    normalizeDatesInTable2(table2Data);
-
-    // Remove empty rows from Table 2
-    const rowsBeforeCleanup = table2Data.length;
-    table2Data = removeEmptyRows(table2Data);
-    const emptyRowsRemoved = rowsBeforeCleanup - table2Data.length;
-    if (emptyRowsRemoved > 0) {
-      console.log(`Table 2: Removed ${emptyRowsRemoved} empty row(s), now has ${table2Data.length} rows`);
+    normalizeHistoryDates(rawHistoryRows);
+    const historyRows = removeIncompleteRows(rawHistoryRows);
+    const removedRowCount = rawHistoryRows.length - historyRows.length;
+    if (removedRowCount > 0) {
+      console.log(`History sheet: Removed ${removedRowCount} empty row(s), now has ${historyRows.length} rows`);
     } else {
-      console.log(`Table 2 has ${table2Data.length} rows`);
+      console.log(`History sheet has ${historyRows.length} rows`);
     }
 
-    // Step 3: Generate optimal pairs using sophisticated algorithm
-    const newPairs = generateOptimalPairs(
-      table1Data,
-      table2Data
-    );
-
+    // Step 3 is logged by the pairing algorithm itself
+    const newPairs = generatePairs(employeeRows, historyRows);
     if (newPairs.length === 0) {
       console.log('\nNo new pairs to add. Exiting.');
-      // Clean up temp file
-      fs.unlinkSync(config.localFile.downloadPath);
       return;
     }
 
-    // Step 4: Append new pairs to Table 2
-    console.log('\nStep 4: Appending new pairs to Table 2...');
+    console.log('\nStep 4: Appending new pairs to History sheet...');
+    const roundNumber = detectNextRoundNumber(historyRows, spreadsheet.roundLabelPrefix);
+    const roundLabel = `${spreadsheet.roundLabelPrefix} #${roundNumber}`;
+    const today = formatIsoDate(new Date());
+    console.log(`  Round: ${roundLabel}`);
 
-    // Detect next round number
-    const roundNumber = detectNextRoundNumber(table2Data, config.spreadsheet.pairingTextBase);
-    const pairingText = `${config.spreadsheet.pairingTextBase} #${roundNumber}`;
-    console.log(`  Round: ${pairingText}`);
-
-    // Get current date formatted as ISO (yyyy-mm-dd) - the ONLY date format we use for writing
-    const currentDate = new Date();
-    const dateText = formatDateAsISO(currentDate);
-
-    // Add new pairs to table2Data
-    // Table 2 structure: Column 0 = email1, Column 1 = email2, Column 2 = date (yyyy-mm-dd), Column 3 = text
     for (const [email1, email2] of newPairs) {
-      const newRow = [
-        email1,
-        email2,
-        dateText, // Date in ISO format yyyy-mm-dd
-        pairingText,
-      ];
-      table2Data.push(newRow);
+      historyRows.push([email1, email2, today, roundLabel]);
       console.log(`${email1} - ${email2}`);
     }
 
-    // Convert updated data back to worksheet
-    const newSheet2 = XLSX.utils.aoa_to_sheet(table2Data);
-
-    // Update workbook
-    workbook.Sheets[sheet2Name] = newSheet2;
-
-    // Write updated workbook to file
-    XLSX.writeFile(workbook, config.localFile.downloadPath);
+    workbook.Sheets[spreadsheet.historySheetName] = XLSX.utils.aoa_to_sheet(historyRows);
+    XLSX.writeFile(workbook, localFile.downloadPath);
     console.log('\nSpreadsheet updated locally');
 
-    // Step 5: Upload updated spreadsheet back to Yandex.Disk
     console.log('\nStep 5: Uploading updated spreadsheet to Yandex.Disk...');
-    await yandexClient.uploadFile(
-      config.localFile.downloadPath,
-      config.yandexDisk.filePath,
-      true
-    );
+    await diskClient.uploadFile(localFile.downloadPath, yandexDisk.filePath);
 
     console.log('\n✓ Process completed successfully!');
     console.log(`✓ Added ${newPairs.length} new pairs to the spreadsheet`);
-
-    // Clean up temp file
-    fs.unlinkSync(config.localFile.downloadPath);
-    console.log('✓ Temporary file cleaned up');
   } catch (error) {
     console.error('\n✗ Error:', error.message);
     console.error(error.stack);
-
-    // Clean up temp file if it exists
-    if (fs.existsSync(config.localFile.downloadPath)) {
-      fs.unlinkSync(config.localFile.downloadPath);
-    }
-
-    process.exit(1);
+    process.exitCode = 1;
+  } finally {
+    fs.rmSync(localFile.downloadPath, { force: true });
   }
 }
 
 /**
- * Convert Excel serial date to JavaScript Date
+ * Read a worksheet as an array of rows (the first row is the header)
+ * @throws {Error} If the workbook has no sheet with this name
  */
-function excelDateToJSDate(serial) {
-  if (typeof serial !== 'number') return null;
-  const utc_days = Math.floor(serial - 25569);
-  const utc_value = utc_days * 86400;
-  const date_info = new Date(utc_value * 1000);
-  return new Date(date_info.getFullYear(), date_info.getMonth(), date_info.getDate());
+function readSheetRows(workbook, sheetName) {
+  const sheet = workbook.Sheets[sheetName];
+  if (!sheet) {
+    throw new Error(`Sheet "${sheetName}" not found in workbook`);
+  }
+  return XLSX.utils.sheet_to_json(sheet, { header: 1 });
 }
 
 /**
- * Parse date from various formats
- * Accepts: Excel serial numbers, dd/mm/yyyy, yyyy-mm-dd, dd-mm-yyyy, and other common formats
- * Output: All dates will be written in ISO format (yyyy-mm-dd)
- * @param {number|string} dateValue - Date in any common format
+ * Convert an Excel serial date number to a local-midnight Date
+ * @param {number} serial - Days since the Excel epoch
+ * @returns {Date|null} - Parsed date or null for non-numeric input
+ */
+function excelSerialToDate(serial) {
+  if (typeof serial !== 'number') return null;
+
+  const utcDate = new Date(Math.floor(serial - EXCEL_TO_UNIX_EPOCH_DAYS) * MS_PER_DAY);
+  return new Date(utcDate.getUTCFullYear(), utcDate.getUTCMonth(), utcDate.getUTCDate());
+}
+
+/**
+ * Parse a date from an Excel serial number or a yyyy-mm-dd, yyyy/mm/dd,
+ * dd/mm/yyyy or dd-mm-yyyy string
+ * @param {number|string} dateValue - Date in any supported format
  * @returns {Date|null} - Parsed date or null
  */
 function parseDate(dateValue) {
   if (!dateValue) return null;
 
-  // Excel serial number
   if (typeof dateValue === 'number') {
-    return excelDateToJSDate(dateValue);
+    return excelSerialToDate(dateValue);
   }
+  if (typeof dateValue !== 'string') return null;
 
-  // String formats
-  if (typeof dateValue === 'string') {
-    const trimmed = dateValue.trim();
-
-    // Try ISO format yyyy-mm-dd (e.g., "2024-03-05")
-    const isoMatch = trimmed.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/);
-    if (isoMatch) {
-      const year = parseInt(isoMatch[1], 10);
-      const month = parseInt(isoMatch[2], 10) - 1; // months are 0-indexed
-      const day = parseInt(isoMatch[3], 10);
-      return new Date(year, month, day);
-    }
-
-    // Try dd/mm/yyyy format (e.g., "05/03/2024" = March 5, 2024)
-    const ddmmyyyySlashMatch = trimmed.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
-    if (ddmmyyyySlashMatch) {
-      const day = parseInt(ddmmyyyySlashMatch[1], 10);
-      const month = parseInt(ddmmyyyySlashMatch[2], 10) - 1;
-      const year = parseInt(ddmmyyyySlashMatch[3], 10);
-      return new Date(year, month, day);
-    }
-
-    // Try dd-mm-yyyy format (e.g., "05-03-2024" = March 5, 2024)
-    const ddmmyyyyDashMatch = trimmed.match(/^(\d{1,2})-(\d{1,2})-(\d{4})$/);
-    if (ddmmyyyyDashMatch) {
-      const day = parseInt(ddmmyyyyDashMatch[1], 10);
-      const month = parseInt(ddmmyyyyDashMatch[2], 10) - 1;
-      const year = parseInt(ddmmyyyyDashMatch[3], 10);
-      return new Date(year, month, day);
-    }
-
-    // Try yyyy/mm/dd format (e.g., "2024/03/05")
-    const yyyymmddSlashMatch = trimmed.match(/^(\d{4})\/(\d{1,2})\/(\d{1,2})$/);
-    if (yyyymmddSlashMatch) {
-      const year = parseInt(yyyymmddSlashMatch[1], 10);
-      const month = parseInt(yyyymmddSlashMatch[2], 10) - 1;
-      const day = parseInt(yyyymmddSlashMatch[3], 10);
-      return new Date(year, month, day);
-    }
-
-    // No valid format found
+  const trimmed = dateValue.trim();
+  const match = trimmed.match(YEAR_FIRST_DATE_PATTERN) || trimmed.match(DAY_FIRST_DATE_PATTERN);
+  if (!match) {
     console.warn(`Unable to parse date: "${dateValue}" - expected dd/mm/yyyy, yyyy-mm-dd, or similar format`);
     return null;
   }
 
-  return null;
+  const { year, month, day } = match.groups;
+  return new Date(Number(year), Number(month) - 1, Number(day));
 }
 
 /**
- * Format date as ISO format (yyyy-mm-dd)
- * IMPORTANT: This is the ONLY date format used for writing dates in the History spreadsheet
- * ISO format is unambiguous, internationally standardized, and sorts correctly
- * @param {Date} date - JavaScript Date object
- * @returns {string} - Date string in yyyy-mm-dd format
+ * Format a date as yyyy-mm-dd, the only date format written to the History sheet
+ * (unambiguous and sorts correctly as text)
+ * @param {Date} date
+ * @returns {string}
  */
-function formatDateAsISO(date) {
+function formatIsoDate(date) {
   const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0'); // months are 0-indexed
+  const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
 }
 
 /**
- * Normalize all dates in Table 2 (History) to ISO format (yyyy-mm-dd)
- * Converts Excel serial numbers, dd/mm/yyyy, and other formats to consistent ISO format
- * This ensures ALL dates in the system use the same format for storage
- * @param {Array} table2Data - Historical pairing data (Table 2)
+ * Rewrite every date in the History sheet in place as yyyy-mm-dd
+ * @param {Array} historyRows - History sheet rows, including the header
  */
-function normalizeDatesInTable2(table2Data) {
-  let normalized = 0;
-  let alreadyCorrect = 0;
-  let failed = 0;
+function normalizeHistoryDates(historyRows) {
+  let convertedCount = 0;
+  let unchangedCount = 0;
+  let failedCount = 0;
 
-  // Skip header row, process data rows
-  for (let i = 1; i < table2Data.length; i++) {
-    const row = table2Data[i];
-    if (!row || !row[2]) continue; // Column 2 is the date column
+  for (const row of historyRows.slice(1)) {
+    const dateValue = row?.[HISTORY_DATE_COLUMN];
+    if (!dateValue) continue;
 
-    const dateValue = row[2];
-    const originalValue = dateValue;
+    const date = parseDate(dateValue);
+    if (!date) {
+      failedCount++;
+      continue;
+    }
 
-    // Parse the date from any format (Excel serial, dd/mm/yyyy, ISO, etc.)
-    const parsedDate = parseDate(dateValue);
-
-    // Convert to ISO format yyyy-mm-dd (the ONLY format we use for writing)
-    if (parsedDate) {
-      const formatted = formatDateAsISO(parsedDate);
-      if (originalValue !== formatted) {
-        normalized++;
-      } else {
-        alreadyCorrect++;
-      }
-      row[2] = formatted;
+    const isoDate = formatIsoDate(date);
+    if (isoDate === dateValue) {
+      unchangedCount++;
     } else {
-      failed++;
+      row[HISTORY_DATE_COLUMN] = isoDate;
+      convertedCount++;
     }
   }
 
-  if (normalized > 0 || failed > 0) {
-    console.log(`Date normalization: ${normalized} converted to ISO format, ${alreadyCorrect} already correct, ${failed} failed`);
+  if (convertedCount > 0 || failedCount > 0) {
+    console.log(`Date normalization: ${convertedCount} converted to ISO format, ${unchangedCount} already correct, ${failedCount} failed`);
   }
 }
 
 /**
- * Remove empty rows from Table 2
- * A row is considered empty if it lacks email1 and email2
- * @param {Array} table2Data - Historical pairing data
- * @returns {Array} - Cleaned table data without empty rows
+ * Drop History rows that do not contain both emails of a pair, keeping the header
+ * @param {Array} historyRows - History sheet rows, including the header
+ * @returns {Array} - Header followed by the complete rows only
  */
-function removeEmptyRows(table2Data) {
-  if (!table2Data || table2Data.length === 0) return table2Data;
+function removeIncompleteRows(historyRows) {
+  if (!historyRows?.length) return historyRows;
 
-  // Keep the header row (index 0) and filter data rows
-  const header = table2Data[0];
-  const dataRows = table2Data.slice(1).filter(row => {
-    // A row is valid if it has at least email1 and email2
-    return row && row[0] && row[1];
-  });
-
-  return [header, ...dataRows];
+  const [header, ...dataRows] = historyRows;
+  return [header, ...dataRows.filter(row => row?.[0] && row?.[1])];
 }
 
 /**
- * Detect the current round number from existing table data
- * Looks for patterns like "Random Coffee #N" in the text column
- * @param {Array} table2Data - Historical pairing data
- * @param {string} baseText - Base text pattern (e.g., "Random Coffee")
- * @returns {number} - Next round number
+ * Find the round that follows the highest "<prefix> #N" label in the History sheet
+ * @param {Array} historyRows - History sheet rows, including the header
+ * @param {string} roundLabelPrefix - Label text before the round number (e.g., "Random Coffee")
+ * @returns {number} - Next round number (1 if no rounds were found)
  */
-function detectNextRoundNumber(table2Data, baseText) {
-  let maxRound = 0;
+function detectNextRoundNumber(historyRows, roundLabelPrefix) {
+  const roundLabelPattern = new RegExp(`${escapeRegExp(roundLabelPrefix)}\\s*#(\\d+)`, 'i');
+  let lastRoundNumber = 0;
 
-  // Regex to match "Base Text #N" pattern
-  const pattern = new RegExp(`${baseText.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*#(\\d+)`, 'i');
-
-  for (let i = 1; i < table2Data.length; i++) {
-    const row = table2Data[i];
-    if (!row || !row[3]) continue; // Column 3 is text field
-
-    const textValue = String(row[3]);
-    const match = textValue.match(pattern);
-
-    if (match && match[1]) {
-      const roundNum = parseInt(match[1], 10);
-      maxRound = Math.max(maxRound, roundNum);
+  for (const row of historyRows.slice(1)) {
+    const match = String(row?.[HISTORY_ROUND_COLUMN] ?? '').match(roundLabelPattern);
+    if (match) {
+      lastRoundNumber = Math.max(lastRoundNumber, Number(match[1]));
     }
   }
 
-  return maxRound + 1;
+  return lastRoundNumber + 1;
 }
 
-// Run the main function
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 if (require.main === module) {
   main();
 }
 
 module.exports = {
   main,
-  excelDateToJSDate,
+  excelSerialToDate,
   parseDate,
-  formatDateAsISO,
-  normalizeDatesInTable2,
-  removeEmptyRows,
+  formatIsoDate,
+  normalizeHistoryDates,
+  removeIncompleteRows,
   detectNextRoundNumber,
 };

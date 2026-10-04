@@ -21,7 +21,7 @@ describe('Integration Tests', () => {
 
   describe('Pairing Algorithm Integration', () => {
     it('should generate new pairs avoiding recent meetings', () => {
-      const { generateOptimalPairs } = require('./pairingAlgorithm');
+      const { generatePairs } = require('./pairingAlgorithm');
 
       const table1Data = [
         ['email', 'active', 'twice'],
@@ -37,7 +37,7 @@ describe('Integration Tests', () => {
         ['charlie@test.com', 'david@test.com', '2024-01-15', 'Random Coffee #1'],
       ];
 
-      const pairs = generateOptimalPairs(table1Data, table2Data);
+      const pairs = generatePairs(table1Data, table2Data);
 
       // Should produce 2 pairs
       expect(pairs.length).toBe(2);
@@ -57,7 +57,7 @@ describe('Integration Tests', () => {
     });
 
     it('should handle larger groups efficiently', () => {
-      const { generateOptimalPairs } = require('./pairingAlgorithm');
+      const { generatePairs } = require('./pairingAlgorithm');
 
       // Create 20 employees
       const table1Data = [['email', 'active', 'twice']];
@@ -68,7 +68,7 @@ describe('Integration Tests', () => {
       const table2Data = [['email1', 'email2', 'date', 'text']];
 
       const startTime = Date.now();
-      const pairs = generateOptimalPairs(table1Data, table2Data);
+      const pairs = generatePairs(table1Data, table2Data);
       const endTime = Date.now();
 
       // Should complete in reasonable time (< 5 seconds)
@@ -83,7 +83,7 @@ describe('Integration Tests', () => {
     });
 
     it('should handle odd number of employees with twice user', () => {
-      const { generateOptimalPairs } = require('./pairingAlgorithm');
+      const { generatePairs } = require('./pairingAlgorithm');
 
       const table1Data = [
         ['email', 'active', 'twice'],
@@ -94,7 +94,7 @@ describe('Integration Tests', () => {
 
       const table2Data = [['email1', 'email2', 'date', 'text']];
 
-      const pairs = generateOptimalPairs(table1Data, table2Data);
+      const pairs = generatePairs(table1Data, table2Data);
 
       // With 3 employees and 1 twice user, we can make 2 pairs
       // alice gets paired twice
@@ -102,7 +102,7 @@ describe('Integration Tests', () => {
     });
 
     it('should handle case where all possible pairs have been made', () => {
-      const { generateOptimalPairs } = require('./pairingAlgorithm');
+      const { generatePairs } = require('./pairingAlgorithm');
 
       // 4 employees, all possible pairs have met
       const table1Data = [
@@ -125,7 +125,7 @@ describe('Integration Tests', () => {
       ];
 
       // Algorithm should still produce pairs (with penalty)
-      const pairs = generateOptimalPairs(table1Data, table2Data);
+      const pairs = generatePairs(table1Data, table2Data);
 
       // Should still produce pairs even if all are repeats
       expect(pairs.length).toBeGreaterThanOrEqual(0);
@@ -136,8 +136,8 @@ describe('Integration Tests', () => {
     it('should correctly normalize and use dates through the workflow', () => {
       const {
         parseDate,
-        formatDateAsISO,
-        normalizeDatesInTable2,
+        formatIsoDate,
+        normalizeHistoryDates,
       } = require('./index');
 
       // Simulate mixed date formats in history
@@ -149,7 +149,7 @@ describe('Integration Tests', () => {
       ];
 
       // Normalize dates
-      normalizeDatesInTable2(table2Data);
+      normalizeHistoryDates(table2Data);
 
       // All dates should be in ISO format
       expect(table2Data[1][2]).toBe('2024-03-15');
@@ -178,8 +178,8 @@ describe('Integration Tests', () => {
 
   describe('Empty Row Handling Integration', () => {
     it('should clean up data before processing', () => {
-      const { removeEmptyRows } = require('./index');
-      const { generateOptimalPairs } = require('./pairingAlgorithm');
+      const { removeIncompleteRows } = require('./index');
+      const { generatePairs } = require('./pairingAlgorithm');
 
       const table1Data = [
         ['email', 'active', 'twice'],
@@ -196,13 +196,13 @@ describe('Integration Tests', () => {
         undefined,
       ];
 
-      const cleanedTable2 = removeEmptyRows(table2Data);
+      const cleanedTable2 = removeIncompleteRows(table2Data);
 
       // Should have header + 1 valid row (alice-charlie)
       expect(cleanedTable2.length).toBe(2);
 
       // Algorithm should work with cleaned data
-      const pairs = generateOptimalPairs(table1Data, cleanedTable2);
+      const pairs = generatePairs(table1Data, cleanedTable2);
       expect(pairs.length).toBe(1); // alice and bob
     });
   });
@@ -241,7 +241,7 @@ describe('Integration Tests', () => {
 
   describe('Full Pairing Cycle', () => {
     it('should produce pairs in first round with no history', () => {
-      const { generateOptimalPairs } = require('./pairingAlgorithm');
+      const { generatePairs } = require('./pairingAlgorithm');
 
       // 6 employees = 3 pairs expected
       const table1Data = [
@@ -256,7 +256,7 @@ describe('Integration Tests', () => {
 
       const table2Data = [['email1', 'email2', 'date', 'text']];
 
-      const pairs = generateOptimalPairs(table1Data, table2Data);
+      const pairs = generatePairs(table1Data, table2Data);
 
       // First round with no history should always produce n/2 pairs
       expect(pairs.length).toBe(3);
@@ -267,8 +267,8 @@ describe('Integration Tests', () => {
     });
 
     it('should avoid repeating pairs across rounds', () => {
-      const { generateOptimalPairs } = require('./pairingAlgorithm');
-      const { formatDateAsISO } = require('./index');
+      const { generatePairs } = require('./pairingAlgorithm');
+      const { formatIsoDate } = require('./index');
 
       const table1Data = [
         ['email', 'active', 'twice'],
@@ -281,17 +281,17 @@ describe('Integration Tests', () => {
       let table2Data = [['email1', 'email2', 'date', 'text']];
 
       // First round
-      const pairs1 = generateOptimalPairs(table1Data, table2Data);
+      const pairs1 = generatePairs(table1Data, table2Data);
       expect(pairs1.length).toBe(2);
 
       // Add pairs to history
-      const dateText = formatDateAsISO(new Date());
+      const dateText = formatIsoDate(new Date());
       for (const [email1, email2] of pairs1) {
         table2Data.push([email1, email2, dateText, 'Random Coffee #1']);
       }
 
       // Second round
-      const pairs2 = generateOptimalPairs(table1Data, table2Data);
+      const pairs2 = generatePairs(table1Data, table2Data);
       expect(pairs2.length).toBeGreaterThanOrEqual(1);
 
       // With 4 people, there are 6 possible pairs (4 choose 2)

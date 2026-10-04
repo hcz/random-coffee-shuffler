@@ -3,14 +3,13 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const {
-  generateOptimalPairs,
+  generatePairs,
   buildConnectionGraph,
   detectCommunities,
   calculateDiversityScore,
   calculateNetworkScore,
   buildCostMatrix,
-  hungarianMatching,
-  parseDate,
+  findMinimumCostMatching,
   ALGORITHM_CONFIG,
 } = require('./pairingAlgorithm');
 
@@ -20,46 +19,6 @@ describe('pairingAlgorithm', () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     vi.spyOn(console, 'error').mockImplementation(() => {});
-  });
-
-  describe('parseDate', () => {
-    it('should parse ISO format yyyy-mm-dd', () => {
-      const result = parseDate('2024-03-15');
-      expect(result).toBeInstanceOf(Date);
-      expect(result.getFullYear()).toBe(2024);
-      expect(result.getMonth()).toBe(2); // 0-indexed
-      expect(result.getDate()).toBe(15);
-    });
-
-    it('should parse single-digit month and day in ISO format', () => {
-      const result = parseDate('2024-1-5');
-      expect(result).toBeInstanceOf(Date);
-      expect(result.getFullYear()).toBe(2024);
-      expect(result.getMonth()).toBe(0);
-      expect(result.getDate()).toBe(5);
-    });
-
-    it('should return null for empty string', () => {
-      expect(parseDate('')).toBeNull();
-    });
-
-    it('should return null for null', () => {
-      expect(parseDate(null)).toBeNull();
-    });
-
-    it('should return null for undefined', () => {
-      expect(parseDate(undefined)).toBeNull();
-    });
-
-    it('should return null for non-string values', () => {
-      expect(parseDate(12345)).toBeNull();
-      expect(parseDate({})).toBeNull();
-    });
-
-    it('should return null for invalid date format', () => {
-      expect(parseDate('not-a-date')).toBeNull();
-      expect(parseDate('15/03/2024')).toBeNull(); // dd/mm/yyyy not supported in algorithm
-    });
   });
 
   describe('buildConnectionGraph', () => {
@@ -134,7 +93,7 @@ describe('pairingAlgorithm', () => {
       expect(graph.hasEdge('alice@test.com', 'charlie@test.com')).toBe(false);
     });
 
-    it('should count multiple meetings between same pair', () => {
+    it('should create a single edge for multiple meetings between same pair', () => {
       const table1Data = [
         ['email', 'active', 'twice'],
         ['alice@test.com', true, ''],
@@ -144,14 +103,13 @@ describe('pairingAlgorithm', () => {
         ['email1', 'email2', 'date', 'text'],
         ['alice@test.com', 'bob@test.com', '2024-01-15', 'Random Coffee #1'],
         ['alice@test.com', 'bob@test.com', '2024-02-15', 'Random Coffee #2'],
-        ['alice@test.com', 'bob@test.com', '2024-03-15', 'Random Coffee #3'],
+        ['bob@test.com', 'alice@test.com', '2024-03-15', 'Random Coffee #3'],
       ];
 
       const graph = buildConnectionGraph(table1Data, table2Data);
-      const edgeData = graph.getEdgeAttributes('alice@test.com', 'bob@test.com');
 
-      expect(edgeData.count).toBe(3);
-      expect(edgeData.meetings.length).toBe(3);
+      expect(graph.size).toBe(1);
+      expect(graph.hasEdge('alice@test.com', 'bob@test.com')).toBe(true);
     });
 
     it('should skip history entries where employees are not in active list', () => {
@@ -418,14 +376,14 @@ describe('pairingAlgorithm', () => {
     });
   });
 
-  describe('hungarianMatching', () => {
+  describe('findMinimumCostMatching', () => {
     it('should return empty array for empty cost matrix', () => {
-      const result = hungarianMatching([], []);
+      const result = findMinimumCostMatching([], []);
       expect(result).toEqual([]);
     });
 
     it('should return empty array for null cost matrix', () => {
-      const result = hungarianMatching(['a@test.com'], null);
+      const result = findMinimumCostMatching(['a@test.com'], null);
       expect(result).toEqual([]);
     });
 
@@ -439,7 +397,7 @@ describe('pairingAlgorithm', () => {
         [0, 0, -10, 10000],
       ];
 
-      const pairs = hungarianMatching(employees, costMatrix);
+      const pairs = findMinimumCostMatching(employees, costMatrix);
 
       expect(pairs.length).toBe(2);
       // Each person should appear exactly once
@@ -455,7 +413,7 @@ describe('pairingAlgorithm', () => {
         [-5, -5, 10000],
       ];
 
-      const pairs = hungarianMatching(employees, costMatrix);
+      const pairs = findMinimumCostMatching(employees, costMatrix);
 
       // With 3 employees, only 1 pair can be formed
       expect(pairs.length).toBe(1);
@@ -469,7 +427,7 @@ describe('pairingAlgorithm', () => {
         [-5, -5, 10000],
       ];
 
-      const pairs = hungarianMatching(employees, costMatrix);
+      const pairs = findMinimumCostMatching(employees, costMatrix);
 
       for (const [email1, email2] of pairs) {
         expect(email1).not.toBeNull();
@@ -478,7 +436,7 @@ describe('pairingAlgorithm', () => {
     });
   });
 
-  describe('generateOptimalPairs', () => {
+  describe('generatePairs', () => {
     it('should return empty array when fewer than 2 employees', () => {
       const table1Data = [
         ['email', 'active', 'twice'],
@@ -486,7 +444,7 @@ describe('pairingAlgorithm', () => {
       ];
       const table2Data = [['email1', 'email2', 'date', 'text']];
 
-      const pairs = generateOptimalPairs(table1Data, table2Data);
+      const pairs = generatePairs(table1Data, table2Data);
 
       expect(pairs).toEqual([]);
     });
@@ -501,7 +459,7 @@ describe('pairingAlgorithm', () => {
       ];
       const table2Data = [['email1', 'email2', 'date', 'text']];
 
-      const pairs = generateOptimalPairs(table1Data, table2Data);
+      const pairs = generatePairs(table1Data, table2Data);
 
       expect(pairs.length).toBe(2);
       const allPeople = pairs.flat();
@@ -522,7 +480,7 @@ describe('pairingAlgorithm', () => {
         ['c@test.com', 'd@test.com', '2024-01-15', 'Round #1'],
       ];
 
-      const pairs = generateOptimalPairs(table1Data, table2Data);
+      const pairs = generatePairs(table1Data, table2Data);
 
       // Should not have a-b or c-d pairs (they've already met)
       for (const [email1, email2] of pairs) {
@@ -544,7 +502,7 @@ describe('pairingAlgorithm', () => {
       ];
       const table2Data = [['email1', 'email2', 'date', 'text']];
 
-      const pairs = generateOptimalPairs(table1Data, table2Data);
+      const pairs = generatePairs(table1Data, table2Data);
 
       // With 3 employees and one "twice" user, should still make 2 pairs
       // (the twice user gets paired twice)
@@ -571,7 +529,7 @@ describe('pairingAlgorithm', () => {
       ];
 
       // Should still produce pairs even if everyone has met (fallback)
-      const pairs = generateOptimalPairs(table1Data, table2Data);
+      const pairs = generatePairs(table1Data, table2Data);
 
       // Algorithm will still try to pair, even with penalties
       expect(pairs.length).toBeGreaterThanOrEqual(0);
@@ -585,7 +543,7 @@ describe('pairingAlgorithm', () => {
       ];
       const table2Data = [['email1', 'email2', 'date', 'text']];
 
-      const pairs = generateOptimalPairs(table1Data, table2Data);
+      const pairs = generatePairs(table1Data, table2Data);
 
       expect(pairs.length).toBe(1);
       expect(pairs[0]).toHaveLength(2);
@@ -627,7 +585,7 @@ describe('pairingAlgorithm', () => {
       ];
       const table2Data = [['email1', 'email2', 'date', 'text']];
 
-      const pairs = generateOptimalPairs(table1Data, table2Data);
+      const pairs = generatePairs(table1Data, table2Data);
 
       expect(pairs.length).toBe(3);
       const allPaired = pairs.flat();
@@ -651,7 +609,7 @@ describe('pairingAlgorithm', () => {
         ['e@test.com', 'f@test.com', '2024-01-15', 'Round #1'],
       ];
 
-      const pairs = generateOptimalPairs(table1Data, table2Data);
+      const pairs = generatePairs(table1Data, table2Data);
 
       expect(pairs.length).toBe(3);
       const allPaired = pairs.flat();
@@ -682,7 +640,7 @@ describe('pairingAlgorithm', () => {
 
       // Run 3 rounds and ensure everyone is paired each time
       for (let round = 1; round <= 3; round++) {
-        const pairs = generateOptimalPairs(table1Data, table2Data);
+        const pairs = generatePairs(table1Data, table2Data);
 
         expect(pairs.length).toBe(4);
         const allPaired = pairs.flat();
@@ -702,7 +660,7 @@ describe('pairingAlgorithm', () => {
       }
       const table2Data = [['email1', 'email2', 'date', 'text']];
 
-      const pairs = generateOptimalPairs(table1Data, table2Data);
+      const pairs = generatePairs(table1Data, table2Data);
 
       expect(pairs.length).toBe(5);
       const allPaired = pairs.flat();
@@ -718,7 +676,7 @@ describe('pairingAlgorithm', () => {
       let table2Data = [['email1', 'email2', 'date', 'text']];
 
       for (let round = 1; round <= 5; round++) {
-        const pairs = generateOptimalPairs(table1Data, table2Data);
+        const pairs = generatePairs(table1Data, table2Data);
 
         expect(pairs.length).toBe(6);
         const allPaired = pairs.flat();
@@ -745,7 +703,7 @@ describe('pairingAlgorithm', () => {
         ['alice@test.com', 'bob@test.com', '2024-01-15', 'Round #1'],
       ];
 
-      const pairs = generateOptimalPairs(table1Data, table2Data);
+      const pairs = generatePairs(table1Data, table2Data);
 
       expect(pairs.length).toBe(2);
       const pairedEmails = new Set(pairs.flat());
@@ -779,7 +737,7 @@ describe('pairingAlgorithm', () => {
         ['e@test.com', 'f@test.com', '2024-03-15', 'R3'],
       ];
 
-      const pairs = generateOptimalPairs(table1Data, table2Data);
+      const pairs = generatePairs(table1Data, table2Data);
 
       expect(pairs.length).toBe(3);
       const allPaired = pairs.flat();

@@ -32,28 +32,22 @@ describe('config', () => {
   });
 
   describe('spreadsheet config', () => {
-    it('should have sheet1Name property', () => {
+    it('should have employeesSheetName property', () => {
       const config = require('./config');
-      expect(config.spreadsheet).toHaveProperty('sheet1Name');
-      expect(typeof config.spreadsheet.sheet1Name).toBe('string');
+      expect(config.spreadsheet).toHaveProperty('employeesSheetName');
+      expect(typeof config.spreadsheet.employeesSheetName).toBe('string');
     });
 
-    it('should have sheet2Name property', () => {
+    it('should have historySheetName property', () => {
       const config = require('./config');
-      expect(config.spreadsheet).toHaveProperty('sheet2Name');
-      expect(typeof config.spreadsheet.sheet2Name).toBe('string');
+      expect(config.spreadsheet).toHaveProperty('historySheetName');
+      expect(typeof config.spreadsheet.historySheetName).toBe('string');
     });
 
-    it('should have pairingTextBase property', () => {
+    it('should have roundLabelPrefix property', () => {
       const config = require('./config');
-      expect(config.spreadsheet).toHaveProperty('pairingTextBase');
-      expect(typeof config.spreadsheet.pairingTextBase).toBe('string');
-    });
-
-    it('should have historyCheckDays as a number', () => {
-      const config = require('./config');
-      expect(config.spreadsheet).toHaveProperty('historyCheckDays');
-      expect(typeof config.spreadsheet.historyCheckDays).toBe('number');
+      expect(config.spreadsheet).toHaveProperty('roundLabelPrefix');
+      expect(typeof config.spreadsheet.roundLabelPrefix).toBe('string');
     });
   });
 
@@ -75,11 +69,9 @@ describe('config', () => {
     it('should have all required spreadsheet properties', () => {
       const config = require('./config');
       expect(config.spreadsheet).toBeDefined();
-      expect(typeof config.spreadsheet.sheet1Name).toBe('string');
-      expect(typeof config.spreadsheet.sheet2Name).toBe('string');
-      expect(typeof config.spreadsheet.pairingTextBase).toBe('string');
-      expect(typeof config.spreadsheet.historyCheckDays).toBe('number');
-      expect(config.spreadsheet.historyCheckDays).toBeGreaterThan(0);
+      expect(typeof config.spreadsheet.employeesSheetName).toBe('string');
+      expect(typeof config.spreadsheet.historySheetName).toBe('string');
+      expect(typeof config.spreadsheet.roundLabelPrefix).toBe('string');
     });
 
     it('should have all required localFile properties', () => {
