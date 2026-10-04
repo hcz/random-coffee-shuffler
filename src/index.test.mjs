@@ -3,11 +3,11 @@ import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
 const {
-  excelDateToJSDate,
+  excelSerialToDate,
   parseDate,
-  formatDateAsISO,
-  normalizeDatesInTable2,
-  removeEmptyRows,
+  formatIsoDate,
+  normalizeHistoryDates,
+  removeIncompleteRows,
   detectNextRoundNumber,
 } = require('./index');
 
@@ -17,10 +17,10 @@ describe('index utility functions', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
-  describe('excelDateToJSDate', () => {
+  describe('excelSerialToDate', () => {
     it('should convert Excel serial date to JavaScript Date', () => {
       // Excel serial 44927 = January 1, 2023
-      const result = excelDateToJSDate(44927);
+      const result = excelSerialToDate(44927);
       expect(result).toBeInstanceOf(Date);
       expect(result.getFullYear()).toBe(2023);
       expect(result.getMonth()).toBe(0); // January
@@ -29,7 +29,7 @@ describe('index utility functions', () => {
 
     it('should convert Excel serial date for March 15, 2024', () => {
       // Excel serial 45366 = March 15, 2024
-      const result = excelDateToJSDate(45366);
+      const result = excelSerialToDate(45366);
       expect(result).toBeInstanceOf(Date);
       expect(result.getFullYear()).toBe(2024);
       expect(result.getMonth()).toBe(2); // March
@@ -37,9 +37,9 @@ describe('index utility functions', () => {
     });
 
     it('should return null for non-number input', () => {
-      expect(excelDateToJSDate('not a number')).toBeNull();
-      expect(excelDateToJSDate(null)).toBeNull();
-      expect(excelDateToJSDate(undefined)).toBeNull();
+      expect(excelSerialToDate('not a number')).toBeNull();
+      expect(excelSerialToDate(null)).toBeNull();
+      expect(excelSerialToDate(undefined)).toBeNull();
     });
   });
 
@@ -143,36 +143,36 @@ describe('index utility functions', () => {
     });
   });
 
-  describe('formatDateAsISO', () => {
+  describe('formatIsoDate', () => {
     it('should format date as yyyy-mm-dd', () => {
       const date = new Date(2024, 2, 5); // March 5, 2024
-      expect(formatDateAsISO(date)).toBe('2024-03-05');
+      expect(formatIsoDate(date)).toBe('2024-03-05');
     });
 
     it('should pad single-digit month and day with zeros', () => {
       const date = new Date(2024, 0, 1); // January 1, 2024
-      expect(formatDateAsISO(date)).toBe('2024-01-01');
+      expect(formatIsoDate(date)).toBe('2024-01-01');
     });
 
     it('should handle December correctly', () => {
       const date = new Date(2024, 11, 25); // December 25, 2024
-      expect(formatDateAsISO(date)).toBe('2024-12-25');
+      expect(formatIsoDate(date)).toBe('2024-12-25');
     });
 
     it('should handle end of month dates', () => {
       const date = new Date(2024, 1, 29); // Feb 29, 2024 (leap year)
-      expect(formatDateAsISO(date)).toBe('2024-02-29');
+      expect(formatIsoDate(date)).toBe('2024-02-29');
     });
   });
 
-  describe('normalizeDatesInTable2', () => {
+  describe('normalizeHistoryDates', () => {
     it('should convert Excel serial dates to ISO format', () => {
       const table2Data = [
         ['email1', 'email2', 'date', 'text'],
         ['a@test.com', 'b@test.com', 44927, 'Round #1'], // Jan 1, 2023
       ];
 
-      normalizeDatesInTable2(table2Data);
+      normalizeHistoryDates(table2Data);
 
       expect(table2Data[1][2]).toBe('2023-01-01');
     });
@@ -183,7 +183,7 @@ describe('index utility functions', () => {
         ['a@test.com', 'b@test.com', '15/03/2024', 'Round #1'],
       ];
 
-      normalizeDatesInTable2(table2Data);
+      normalizeHistoryDates(table2Data);
 
       expect(table2Data[1][2]).toBe('2024-03-15');
     });
@@ -194,7 +194,7 @@ describe('index utility functions', () => {
         ['a@test.com', 'b@test.com', '2024-03-15', 'Round #1'],
       ];
 
-      normalizeDatesInTable2(table2Data);
+      normalizeHistoryDates(table2Data);
 
       expect(table2Data[1][2]).toBe('2024-03-15');
     });
@@ -207,7 +207,7 @@ describe('index utility functions', () => {
         ['e@test.com', 'f@test.com', 45366, 'Round #3'], // March 15, 2024
       ];
 
-      normalizeDatesInTable2(table2Data);
+      normalizeHistoryDates(table2Data);
 
       expect(table2Data[1][2]).toBe('2024-03-15');
       expect(table2Data[2][2]).toBe('2024-04-20');
@@ -221,7 +221,7 @@ describe('index utility functions', () => {
         ['c@test.com', 'd@test.com', '', 'Round #2'],
       ];
 
-      normalizeDatesInTable2(table2Data);
+      normalizeHistoryDates(table2Data);
 
       expect(table2Data[1][2]).toBeNull();
       expect(table2Data[2][2]).toBe('');
@@ -235,7 +235,7 @@ describe('index utility functions', () => {
         ['a@test.com', 'b@test.com', '2024-03-15', 'Round #1'],
       ];
 
-      normalizeDatesInTable2(table2Data);
+      normalizeHistoryDates(table2Data);
 
       expect(table2Data[1]).toBeNull();
       expect(table2Data[2]).toBeUndefined();
@@ -243,7 +243,7 @@ describe('index utility functions', () => {
     });
   });
 
-  describe('removeEmptyRows', () => {
+  describe('removeIncompleteRows', () => {
     it('should remove rows without email1 and email2', () => {
       const table2Data = [
         ['email1', 'email2', 'date', 'text'],
@@ -252,7 +252,7 @@ describe('index utility functions', () => {
         ['c@test.com', 'd@test.com', '2024-03-16', 'Round #2'],
       ];
 
-      const result = removeEmptyRows(table2Data);
+      const result = removeIncompleteRows(table2Data);
 
       expect(result.length).toBe(3); // header + 2 valid rows
       expect(result[0]).toEqual(['email1', 'email2', 'date', 'text']);
@@ -268,20 +268,20 @@ describe('index utility functions', () => {
         ['a@test.com', 'b@test.com', '2024-03-15', 'Round #1'],
       ];
 
-      const result = removeEmptyRows(table2Data);
+      const result = removeIncompleteRows(table2Data);
 
       expect(result.length).toBe(2);
       expect(result[1][0]).toBe('a@test.com');
     });
 
-    it('should preserve rows with only email1', () => {
+    it('should remove rows with only email1', () => {
       const table2Data = [
         ['email1', 'email2', 'date', 'text'],
         ['a@test.com', '', '', ''], // has email1 but not email2
         ['b@test.com', 'c@test.com', '', ''],
       ];
 
-      const result = removeEmptyRows(table2Data);
+      const result = removeIncompleteRows(table2Data);
 
       // Row with only email1 is filtered out (needs both email1 AND email2)
       expect(result.length).toBe(2);
@@ -289,9 +289,9 @@ describe('index utility functions', () => {
     });
 
     it('should return original data for empty input', () => {
-      expect(removeEmptyRows([])).toEqual([]);
-      expect(removeEmptyRows(null)).toBeNull();
-      expect(removeEmptyRows(undefined)).toBeUndefined();
+      expect(removeIncompleteRows([])).toEqual([]);
+      expect(removeIncompleteRows(null)).toBeNull();
+      expect(removeIncompleteRows(undefined)).toBeUndefined();
     });
 
     it('should keep header row even if data rows are empty', () => {
@@ -300,7 +300,7 @@ describe('index utility functions', () => {
         ['', '', '', ''],
       ];
 
-      const result = removeEmptyRows(table2Data);
+      const result = removeIncompleteRows(table2Data);
 
       expect(result.length).toBe(1);
       expect(result[0]).toEqual(['email1', 'email2', 'date', 'text']);

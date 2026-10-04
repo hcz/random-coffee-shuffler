@@ -8,7 +8,7 @@ A Node.js application that automatically creates user pairs for "random coffee" 
 
 - Reads user data from Yandex.Disk spreadsheet (Excel format)
 - Filters active users only
-- Creates random pairs while avoiding recent pairings (configurable history check)
+- Creates pairs while avoiding people who have already met
 - Appends new pairs to the spreadsheet with current date
 - Automatically uploads updated spreadsheet back to Yandex.Disk
 
@@ -82,7 +82,6 @@ For quick testing, you can use the Yandex.Disk API playground to generate a toke
    SHEET1_NAME=RandomCoffee
    SHEET2_NAME=History
    PAIRING_TEXT=Random Coffee
-   HISTORY_CHECK_DAYS=30
    ```
 
 ### 3. Prepare Your Spreadsheet
@@ -132,7 +131,6 @@ The application will:
 | `SHEET1_NAME` | Name of the users sheet | `RandomCoffee` |
 | `SHEET2_NAME` | Name of the pairings sheet | `History` |
 | `PAIRING_TEXT` | Base text for rounds (auto-increments: "Random Coffee #1", "#2", etc.) | `Random Coffee` |
-| `HISTORY_CHECK_DAYS` | Days to check for recent pairings (legacy parameter) | `30` |
 
 ### Auto-Incrementing Round Numbers
 
@@ -196,7 +194,7 @@ Rather than a single matching procedure, the implementation switches strategies 
 - **Groups of 12 or fewer**: exhaustive **backtracking with branch-and-bound pruning**. This explores the full space of pair-sets and returns the matching with the lowest total cost — optimal for the given cost matrix.
 - **Groups larger than 12**: a **greedy algorithm with one-step look-ahead**. It repeatedly picks the cheapest available pair, adding a penalty when a choice would strand the remaining people into forced repeat-pairings. This is a heuristic and is **not guaranteed to be optimal**.
 
-The threshold (`n > 12`) is a hard-coded cutoff in `src/pairingAlgorithm.js` chosen to keep backtracking tractable.
+The threshold (`ALGORITHM_CONFIG.MAX_GROUP_SIZE_FOR_BACKTRACKING = 12` in `src/pairingAlgorithm.js`) is chosen to keep backtracking tractable.
 
 ### Multi-Objective Cost Function
 
@@ -285,7 +283,6 @@ The application includes error handling for:
 - `axios` - HTTP client for Yandex.Disk API
 - `dotenv` - Environment variable management
 - `graphology` - Graph data structure for connection network analysis
-- `graphology-metrics` - Network metrics (centrality, clustering, etc.)
 
 ## License
 

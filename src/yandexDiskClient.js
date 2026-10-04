@@ -11,39 +11,18 @@ class YandexDiskClient {
    * Download a file from Yandex.Disk
    * @param {string} remotePath - Path to file on Yandex.Disk (e.g., '/spreadsheet.xlsx')
    * @param {string} localPath - Local path to save the file
+   * @returns {Promise<string>} - The local path the file was saved to
    */
   async downloadFile(remotePath, localPath) {
     try {
-      // Get download link
-      const response = await axios.get(`${this.baseURL}/resources/download`, {
-        headers: {
-          Authorization: `OAuth ${this.oauthToken}`,
-        },
-        params: {
-          path: remotePath,
-        },
-      });
+      const downloadUrl = await this.#requestTransferUrl('download', { path: remotePath });
+      const { data } = await axios.get(downloadUrl, { responseType: 'arraybuffer' });
 
-      const downloadURL = response.data.href;
-
-      // Download file
-      const fileResponse = await axios.get(downloadURL, {
-        responseType: 'arraybuffer',
-      });
-
-      // Save to local file
-      fs.writeFileSync(localPath, fileResponse.data);
+      fs.writeFileSync(localPath, data);
       console.log(`File downloaded successfully to ${localPath}`);
       return localPath;
     } catch (error) {
-      if (error.response) {
-        throw new Error(
-          `Yandex.Disk API error: ${error.response.status} - ${
-            error.response.data.message || error.response.statusText
-          }`
-        );
-      }
-      throw error;
+      throw toApiError(error);
     }
   }
 
@@ -55,41 +34,40 @@ class YandexDiskClient {
    */
   async uploadFile(localPath, remotePath, overwrite = true) {
     try {
-      // Get upload link
-      const response = await axios.get(`${this.baseURL}/resources/upload`, {
-        headers: {
-          Authorization: `OAuth ${this.oauthToken}`,
-        },
-        params: {
-          path: remotePath,
-          overwrite: overwrite,
-        },
+      const uploadUrl = await this.#requestTransferUrl('upload', { path: remotePath, overwrite });
+
+      await axios.put(uploadUrl, fs.readFileSync(localPath), {
+        headers: { 'Content-Type': 'application/octet-stream' },
       });
-
-      const uploadURL = response.data.href;
-
-      // Read local file
-      const fileBuffer = fs.readFileSync(localPath);
-
-      // Upload file
-      await axios.put(uploadURL, fileBuffer, {
-        headers: {
-          'Content-Type': 'application/octet-stream',
-        },
-      });
-
       console.log(`File uploaded successfully to ${remotePath}`);
     } catch (error) {
-      if (error.response) {
-        throw new Error(
-          `Yandex.Disk API error: ${error.response.status} - ${
-            error.response.data.message || error.response.statusText
-          }`
-        );
-      }
-      throw error;
+      throw toApiError(error);
     }
   }
+
+  /**
+   * Request a one-time URL for transferring a file to or from Yandex.Disk
+   * @param {'download'|'upload'} operation
+   * @param {object} params - Query parameters for the API call
+   * @returns {Promise<string>} - URL to download from or upload to
+   */
+  async #requestTransferUrl(operation, params) {
+    const response = await axios.get(`${this.baseURL}/resources/${operation}`, {
+      headers: { Authorization: `OAuth ${this.oauthToken}` },
+      params,
+    });
+    return response.data.href;
+  }
+}
+
+/**
+ * Convert an HTTP error response into a readable Yandex.Disk API error
+ */
+function toApiError(error) {
+  if (!error.response) return error;
+
+  const { status, statusText, data } = error.response;
+  return new Error(`Yandex.Disk API error: ${status} - ${data?.message || statusText}`);
 }
 
 module.exports = YandexDiskClient;
